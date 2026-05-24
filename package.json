@@ -1,0 +1,21 @@
+{
+  "name": "shiftwise",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-powered restaurant scheduling platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:web": "npm run dev -w @shiftwise/web",
+    "dev:api": "npm run dev -w @shiftwise/api",
+    "dev:mobile": "npm run dev -w @shiftwise/mobile",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
