@@ -21,10 +21,10 @@ def health():
 
 @app.post("/generate")
 def generate(request: GenerateRequest):
-    # TODO: implement demand forecast + assignment pipeline
+    # Plan 2: real demand + assignment. Plan 1 API uses in-process stub if this returns not_implemented.
     return {
         "status": "not_implemented",
-        "message": "Scheduling engine coming in Day 4",
+        "message": "Scheduling engine — see Plan 2",
         "workplace_id": request.workplace_id,
         "week_start": request.week_start,
     }

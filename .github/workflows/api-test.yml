@@ -1,0 +1,42 @@
+name: API Tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: shiftwise
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate -w @shiftwise/api
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shiftwise
+      - run: npm run test:api
+        env:
+          USE_REAL_POSTGRES: "1"
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shiftwise
+          JWT_SECRET: test-secret
+          CRON_SECRET: dev-cron-secret
+          TOKEN_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+          CLEARVIEW_MODE: mock

@@ -1,27 +1,18 @@
-import cors from "cors";
-import dotenv from "dotenv";
-import express from "express";
+import { config, assertDatabaseConfigured } from "./config.js";
+import { createApp } from "./app.js";
+import { startSalesSyncCron } from "./jobs/syncClearviewSales.js";
 
-dotenv.config({ path: "../../.env" });
+assertDatabaseConfigured();
 
-const app = express();
-const PORT = process.env.PORT ?? 3001;
+const app = createApp();
 
-app.use(cors());
-app.use(express.json());
+if (process.env.NODE_ENV !== "test") {
+  startSalesSyncCron();
+}
 
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "shiftwise-api" });
+app.listen(config.port, () => {
+  console.log(`ShiftWise API running on http://localhost:${config.port}`);
+  console.log(`Clearview mode: ${config.clearview.mode}`);
 });
 
-app.get("/api", (_req, res) => {
-  res.json({
-    name: "ShiftWise API",
-    version: "0.1.0",
-    docs: "See README for endpoint list",
-  });
-});
-
-app.listen(PORT, () => {
-  console.log(`ShiftWise API running on http://localhost:${PORT}`);
-});
+export { app };

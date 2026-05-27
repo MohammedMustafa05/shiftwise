@@ -1,0 +1,59 @@
+### ShiftWise API manual checklist (mock Clearview)
+@baseUrl = http://localhost:3001
+@cronSecret = dev-cron-secret
+
+### 1 Health
+GET {{baseUrl}}/health
+
+### 2 Employer signup
+# @name signup
+POST {{baseUrl}}/api/auth/signup
+Content-Type: application/json
+
+{
+  "email": "manager@example.com",
+  "password": "password123",
+  "name": "Demo Manager",
+  "workplaceName": "Demo Cafe"
+}
+
+### 3 Login
+# @name login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "manager@example.com",
+  "password": "password123"
+}
+
+@employerToken = {{login.response.body.token}}
+@workplaceId = {{login.response.body.user.workplaceId}}
+
+### 4 Clearview connect (mock)
+GET {{baseUrl}}/api/clearview/connect
+Authorization: Bearer {{employerToken}}
+
+### 5 Mock OAuth callback (use workplaceId from signup in state)
+GET {{baseUrl}}/api/clearview/callback?code=mock_auth_code&state=eyJ3b3JrcGxhY2VJZCI6InJlcGxhY2UifQ&format=json
+
+### 6 Sync sales
+POST {{baseUrl}}/api/admin/sync-sales
+x-cron-secret: {{cronSecret}}
+
+### 7 Generate schedule
+POST {{baseUrl}}/api/schedules/generate
+Authorization: Bearer {{employerToken}}
+Content-Type: application/json
+
+{
+  "weekStart": "2026-06-01"
+}
+
+### 8 Publish
+POST {{baseUrl}}/api/schedules/{{scheduleId}}/publish
+Authorization: Bearer {{employerToken}}
+
+### 9 Export CSV
+GET {{baseUrl}}/api/schedules/{{scheduleId}}/export/clearview
+Authorization: Bearer {{employerToken}}

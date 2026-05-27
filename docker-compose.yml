@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: shiftwise
+    ports:
+      - "5432:5432"
+    volumes:
+      - shiftwise_pg:/var/lib/postgresql/data
+
+volumes:
+  shiftwise_pg:

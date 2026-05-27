@@ -37,16 +37,32 @@ npm install
 
 ```bash
 cp .env.example .env
-# Fill in DATABASE_URL, JWT_SECRET, etc.
+# DATABASE_URL, JWT_SECRET — Clearview stays mock until manager provides keys
 ```
 
-### 3. Run services
+### 3. Database (API)
+
+```bash
+docker compose up -d
+npm run db:migrate
+npm run db:seed
+```
+
+### 4. Run services
 
 **API** (port 3001):
 
 ```bash
 npm run dev:api
 ```
+
+**API tests:**
+
+```bash
+npm run test:api
+```
+
+See [apps/api/README.md](apps/api/README.md) for endpoints and manual checklist.
 
 **Web** (port 5173):
 

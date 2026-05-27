@@ -1,0 +1,5 @@
+[
+  { "date": "2026-05-18", "hour": 8, "salesAmount": 420.5 },
+  { "date": "2026-05-18", "hour": 12, "salesAmount": 1250 },
+  { "date": "2026-05-18", "hour": 18, "salesAmount": 2100.75 }
+]
