@@ -9,8 +9,7 @@ import { query } from "../db/pool.js";
 import { httpError } from "../middleware/errorHandler.js";
 import { writeClearviewExportFile } from "../exports/clearview.js";
 import { config } from "../config.js";
-import { buildEnginePayload } from "./enginePayload.js";
-import { callMlEngine, enrichMlMetadata } from "./mlClient.js";
+import { callMlEngine } from "./mlClient.js";
 import { formatDate, getPreviousWeekRange } from "../utils/dates.js";
 
 export async function loadSalesForWorkplace(workplaceId: string): Promise<
@@ -37,11 +36,57 @@ export async function generateSchedule(
   workplaceId: string,
   weekStart: string
 ): Promise<GenerateScheduleResponse> {
-  const { request: payload, context: engineContext } = await buildEnginePayload(
-    workplaceId,
-    weekStart
+  const wp = await query<{ preferences: WorkplacePreferences }>(
+    `SELECT preferences FROM workplaces WHERE id = $1`,
+    [workplaceId]
   );
-  const mlResult = await callMlEngine(payload);
+  if (wp.rows.length === 0) throw httpError(404, "Workplace not found");
+  const preferences = wp.rows[0].preferences as WorkplacePreferences;
+
+  const sales = await loadSalesForWorkplace(workplaceId);
+  if (sales.length === 0) {
+    throw httpError(400, "No sales data. Run Clearview sync or upload CSV first.");
+  }
+
+  const employees = await query(
+    `SELECT ep.id, ep.user_id, ep.role, ep.employee_number, ep.payroll_department, ep.job_code,
+            u.name, u.email
+     FROM employee_profiles ep
+     JOIN users u ON u.id = ep.user_id
+     WHERE ep.workplace_id = $1`,
+    [workplaceId]
+  );
+
+  const availability = await query(
+    `SELECT ea.user_id, ea.day_of_week, ea.start_time::text, ea.end_time::text
+     FROM employee_availability ea
+     JOIN users u ON u.id = ea.user_id
+     WHERE u.workplace_id = $1`,
+    [workplaceId]
+  );
+
+  const mlResult = await callMlEngine(
+    workplaceId,
+    weekStart,
+    sales,
+    preferences,
+    employees.rows.map((e) => ({
+      id: e.id,
+      userId: e.user_id,
+      workplaceId,
+      name: e.name,
+      email: e.email,
+      role: e.role,
+      employeeNumber: e.employee_number,
+      payrollDepartment: e.payroll_department,
+      jobCode: e.job_code,
+    })),
+    availability.rows.map((a) => ({
+      dayOfWeek: a.day_of_week,
+      startTime: a.start_time.slice(0, 5),
+      endTime: a.end_time.slice(0, 5),
+    }))
+  );
 
   const scheduleInsert = await query<{ id: string }>(
     `INSERT INTO schedules (workplace_id, week_start, status, ml_metadata)
@@ -52,12 +97,7 @@ export async function generateSchedule(
     [
       workplaceId,
       weekStart,
-      JSON.stringify(
-        enrichMlMetadata(mlResult, {
-          engineVersion: mlResult.workersNeeded.byHour.length > 0 ? "2.0.0" : "local-fallback",
-          ...engineContext,
-        })
-      ),
+      JSON.stringify({ workersNeeded: mlResult.workersNeeded, flags: mlResult.flags }),
     ]
   );
   const scheduleId = scheduleInsert.rows[0].id;

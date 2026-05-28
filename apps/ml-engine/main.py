@@ -1,21 +1,30 @@
 from fastapi import FastAPI
-from pydantic import ValidationError
-
-from engine import generate_schedule
-from schemas import GenerateRequest, GenerateResponse
+from pydantic import BaseModel
 
 app = FastAPI(
     title="ShiftWise ML Engine",
     description="Demand forecasting and schedule assignment service",
-    version="2.0.0",
+    version="0.1.0",
 )
+
+
+class GenerateRequest(BaseModel):
+    workplace_id: str
+    week_start: str
+    schedule_id: str | None = None
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "shiftwise-ml-engine", "version": "2.0.0"}
+    return {"status": "ok", "service": "shiftwise-ml-engine"}
 
 
-@app.post("/generate", response_model=GenerateResponse)
-def generate(request: GenerateRequest) -> GenerateResponse:
-    return generate_schedule(request)
+@app.post("/generate")
+def generate(request: GenerateRequest):
+    # Plan 2: real demand + assignment. Plan 1 API uses in-process stub if this returns not_implemented.
+    return {
+        "status": "not_implemented",
+        "message": "Scheduling engine — see Plan 2",
+        "workplace_id": request.workplace_id,
+        "week_start": request.week_start,
+    }
