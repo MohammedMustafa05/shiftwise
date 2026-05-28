@@ -1,16 +1,22 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from "react-native";
+import { API_BASE } from "../../lib/api";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { api } from "../../lib/api";
+import { format24hTo12h, parse12hTo24h } from "../../lib/time";
 
 const C = {
   background: "#F0F4FF",
@@ -33,16 +39,27 @@ type DayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 type DayConfig = {
   key: DayKey;
   label: string;
+  enabled: boolean;
   from: string;
   to: string;
   managerApproved: boolean;
   confirmed: boolean;
 };
 
+const DAY_KEY_TO_DOW: Record<DayKey, number> = {
+  sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
+};
+
+const DAY_LABELS: Record<DayKey, string> = {
+  mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday",
+  fri: "Friday", sat: "Saturday", sun: "Sunday",
+};
+
 const INITIAL_DAYS: DayConfig[] = [
   {
     key: "mon",
     label: "Monday",
+    enabled: true,
     from: "8:00 AM",
     to: "4:00 PM",
     managerApproved: true,
@@ -51,6 +68,7 @@ const INITIAL_DAYS: DayConfig[] = [
   {
     key: "tue",
     label: "Tuesday",
+    enabled: true,
     from: "8:00 AM",
     to: "4:00 PM",
     managerApproved: true,
@@ -59,6 +77,7 @@ const INITIAL_DAYS: DayConfig[] = [
   {
     key: "wed",
     label: "Wednesday",
+    enabled: true,
     from: "9:00 AM",
     to: "5:00 PM",
     managerApproved: true,
@@ -67,6 +86,7 @@ const INITIAL_DAYS: DayConfig[] = [
   {
     key: "thu",
     label: "Thursday",
+    enabled: true,
     from: "8:00 AM",
     to: "4:00 PM",
     managerApproved: false,
@@ -75,6 +95,7 @@ const INITIAL_DAYS: DayConfig[] = [
   {
     key: "fri",
     label: "Friday",
+    enabled: true,
     from: "8:00 AM",
     to: "3:00 PM",
     managerApproved: false,
@@ -83,6 +104,7 @@ const INITIAL_DAYS: DayConfig[] = [
   {
     key: "sat",
     label: "Saturday",
+    enabled: true,
     from: "10:00 AM",
     to: "2:00 PM",
     managerApproved: false,
@@ -91,6 +113,7 @@ const INITIAL_DAYS: DayConfig[] = [
   {
     key: "sun",
     label: "Sunday",
+    enabled: true,
     from: "10:00 AM",
     to: "2:00 PM",
     managerApproved: false,
@@ -116,29 +139,70 @@ const TIME_OPTIONS = (() => {
 
 const ITEM_H = 44;
 
+function findTimeIndex(time: string): number {
+  const exact = TIME_OPTIONS.indexOf(time);
+  if (exact >= 0) return exact;
+
+  const toMinutes = (t: string) => {
+    const parts = t.trim().split(/\s+/);
+    const period = parts[parts.length - 1]?.toUpperCase();
+    const [hStr, mStr] = (parts[0] ?? "8:00").split(":");
+    let h = parseInt(hStr, 10);
+    const m = parseInt(mStr ?? "0", 10);
+    if (period === "PM" && h !== 12) h += 12;
+    if (period === "AM" && h === 12) h = 0;
+    return h * 60 + m;
+  };
+
+  const target = toMinutes(time);
+  let best = 0;
+  let bestDiff = Infinity;
+  TIME_OPTIONS.forEach((opt, i) => {
+    const diff = Math.abs(toMinutes(opt) - target);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = i;
+    }
+  });
+  return best;
+}
+
 export default function AvailabilityScreen() {
   const insets = useSafeAreaInsets();
   const [days, setDays] = useState<DayConfig[]>(INITIAL_DAYS);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerDay, setPickerDay] = useState<DayKey | null>(null);
   const [pickerField, setPickerField] = useState<"from" | "to">("from");
   const [pickerValue, setPickerValue] = useState(TIME_OPTIONS[4]);
   const wheelRef = useRef<ScrollView>(null);
 
-  const pickerIndex = useMemo(
-    () => Math.max(0, TIME_OPTIONS.indexOf(pickerValue)),
-    [pickerValue],
-  );
-
   const openPicker = (dayKey: DayKey, field: "from" | "to", current: string) => {
+    const idx = findTimeIndex(current);
+    const normalized = TIME_OPTIONS[idx] ?? current;
     setPickerDay(dayKey);
     setPickerField(field);
-    setPickerValue(current);
+    setPickerValue(normalized);
     setPickerVisible(true);
-    setTimeout(() => {
-      wheelRef.current?.scrollTo({ y: pickerIndex * ITEM_H, animated: false });
-    }, 50);
   };
+
+  const toggleDay = (dayKey: DayKey, enabled: boolean) => {
+    setDays((prev) =>
+      prev.map((d) =>
+        d.key === dayKey ? { ...d, enabled, managerApproved: false, confirmed: false } : d,
+      ),
+    );
+  };
+
+  useEffect(() => {
+    if (!pickerVisible) return;
+    const idx = findTimeIndex(pickerValue);
+    const timer = setTimeout(() => {
+      wheelRef.current?.scrollTo({ y: idx * ITEM_H, animated: false });
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [pickerVisible, pickerValue]);
 
   const confirmPicker = () => {
     if (!pickerDay) return;
@@ -155,6 +219,69 @@ export default function AvailabilityScreen() {
     const clamped = Math.max(0, Math.min(TIME_OPTIONS.length - 1, idx));
     setPickerValue(TIME_OPTIONS[clamped]);
   };
+
+  useEffect(() => {
+    void api
+      .getAvailability()
+      .then((rows) => {
+        if (rows.length === 0) return;
+        setDays(
+          (["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as DayKey[]).map((key) => {
+            const dow = DAY_KEY_TO_DOW[key];
+            const row = rows.find((r) => r.dayOfWeek === dow);
+            return {
+              key,
+              label: DAY_LABELS[key],
+              enabled: Boolean(row),
+              from: row ? format24hTo12h(row.from) : "8:00 AM",
+              to: row ? format24hTo12h(row.to) : "4:00 PM",
+              managerApproved: row?.managerApproved ?? false,
+              confirmed: row?.confirmed ?? false,
+            };
+          }),
+        );
+      })
+      .catch((e) => {
+        Alert.alert(
+          "Could not load availability",
+          e instanceof Error ? e.message : `Check that the API is running (${API_BASE})`,
+        );
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleContinue() {
+    setSaving(true);
+    try {
+      const blocks = days
+        .filter((d) => d.enabled)
+        .map((d) => ({
+        dayOfWeek: DAY_KEY_TO_DOW[d.key],
+        startTime: parse12hTo24h(d.from),
+        endTime: parse12hTo24h(d.to),
+        }));
+      await api.saveAvailability(blocks);
+      Alert.alert(
+        "Availability submitted",
+        "Your manager will review and confirm your hours.",
+      );
+      setDays((prev) =>
+        prev.map((d) => ({ ...d, managerApproved: false, confirmed: false })),
+      );
+    } catch (e) {
+      Alert.alert("Could not save", e instanceof Error ? e.message : "Try again");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <View style={[styles.screen, styles.centered, { paddingTop: insets.top }]}>
+        <ActivityIndicator size="large" color={C.primary} />
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -173,73 +300,111 @@ export default function AvailabilityScreen() {
       >
         {days.map((day) => (
           <View key={day.key} style={styles.card}>
-            <Text style={styles.dayName}>{day.label}</Text>
+            <View style={styles.dayHeader}>
+              <Text style={styles.dayName}>{day.label}</Text>
+              <View style={styles.toggleWrap}>
+                <Text style={styles.toggleText}>{day.enabled ? "Available" : "Off"}</Text>
+                <Switch
+                  value={day.enabled}
+                  onValueChange={(next) => toggleDay(day.key, next)}
+                  trackColor={{ false: "#CBD5E1", true: "#A5B4FC" }}
+                  thumbColor={day.enabled ? C.primary : "#F8FAFC"}
+                />
+              </View>
+            </View>
 
             <View style={styles.timeRow}>
               <View style={styles.timeField}>
                 <Text style={styles.timeLabel}>From</Text>
                 <Pressable
-                  style={styles.timeBox}
+                  style={[styles.timeBox, !day.enabled && styles.timeBoxDisabled]}
                   onPress={() => openPicker(day.key, "from", day.from)}
+                  disabled={!day.enabled}
                 >
                   <Feather name="clock" size={16} color={C.textMuted} />
-                  <Text style={styles.timeText}>{day.from}</Text>
+                  <Text style={[styles.timeText, !day.enabled && styles.timeTextDisabled]}>
+                    {day.from}
+                  </Text>
                 </Pressable>
               </View>
               <View style={styles.timeField}>
                 <Text style={styles.timeLabel}>To</Text>
                 <Pressable
-                  style={styles.timeBox}
+                  style={[styles.timeBox, !day.enabled && styles.timeBoxDisabled]}
                   onPress={() => openPicker(day.key, "to", day.to)}
+                  disabled={!day.enabled}
                 >
                   <Feather name="clock" size={16} color={C.textMuted} />
-                  <Text style={styles.timeText}>{day.to}</Text>
+                  <Text style={[styles.timeText, !day.enabled && styles.timeTextDisabled]}>
+                    {day.to}
+                  </Text>
                 </Pressable>
               </View>
             </View>
 
             <Text style={styles.verifyNote}>{VERIFICATION_NOTE}</Text>
 
-            <View
-              style={[
-                styles.verifyRow,
-                day.managerApproved && styles.verifyRowVerified,
-              ]}
-            >
-              {day.managerApproved ? (
+            {!day.enabled ? (
+              <View style={styles.verifyRow}>
                 <>
-                  <Feather name="check-circle" size={18} color={C.verified} />
-                  <Text style={styles.verifiedLabel}>Verified</Text>
+                  <Feather name="slash" size={18} color={C.textMuted} />
+                  <Text style={styles.pendingLabel}>Day off</Text>
                 </>
-              ) : (
-                <>
-                  <Feather name="clock" size={18} color={C.textMuted} />
-                  <Text style={styles.pendingLabel}>Pending</Text>
-                </>
-              )}
-            </View>
+              </View>
+            ) : (
+              <View
+                style={[
+                  styles.verifyRow,
+                  day.managerApproved && styles.verifyRowVerified,
+                ]}
+              >
+                {day.managerApproved ? (
+                  <>
+                    <Feather name="check-circle" size={18} color={C.verified} />
+                    <Text style={styles.verifiedLabel}>Verified</Text>
+                  </>
+                ) : (
+                  <>
+                    <Feather name="clock" size={18} color={C.textMuted} />
+                    <Text style={styles.pendingLabel}>Pending</Text>
+                  </>
+                )}
+              </View>
+            )}
           </View>
         ))}
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-        <Pressable style={styles.continueBtn}>
-          <Text style={styles.continueText}>Continue</Text>
+        <Pressable
+          style={[styles.continueBtn, saving && { opacity: 0.7 }]}
+          onPress={handleContinue}
+          disabled={saving}
+        >
+          {saving ? (
+            <ActivityIndicator color={C.textLight} />
+          ) : (
+            <Text style={styles.continueText}>Continue</Text>
+          )}
         </Pressable>
       </View>
 
       <Modal visible={pickerVisible} transparent animationType="slide">
-        <Pressable style={styles.sheetBackdrop} onPress={() => setPickerVisible(false)}>
-          <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+        <View style={styles.sheetBackdrop}>
+          <Pressable style={styles.sheetDismiss} onPress={() => setPickerVisible(false)} />
+          <View style={styles.sheet}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Select time</Text>
             <View style={styles.wheelWrap}>
               <View style={styles.wheelHighlight} pointerEvents="none" />
               <ScrollView
                 ref={wheelRef}
+                nestedScrollEnabled
                 showsVerticalScrollIndicator={false}
                 snapToInterval={ITEM_H}
+                snapToAlignment="start"
                 decelerationRate="fast"
+                scrollEventThrottle={16}
                 onMomentumScrollEnd={onWheelScroll}
                 onScrollEndDrag={onWheelScroll}
                 contentContainerStyle={{
@@ -247,7 +412,15 @@ export default function AvailabilityScreen() {
                 }}
               >
                 {TIME_OPTIONS.map((time) => (
-                  <View key={time} style={styles.wheelItem}>
+                  <Pressable
+                    key={time}
+                    style={styles.wheelItem}
+                    onPress={() => {
+                      const idx = findTimeIndex(time);
+                      setPickerValue(time);
+                      wheelRef.current?.scrollTo({ y: idx * ITEM_H, animated: true });
+                    }}
+                  >
                     <Text
                       style={[
                         styles.wheelText,
@@ -256,15 +429,15 @@ export default function AvailabilityScreen() {
                     >
                       {time}
                     </Text>
-                  </View>
+                  </Pressable>
                 ))}
               </ScrollView>
             </View>
             <Pressable style={styles.confirmBtn} onPress={confirmPicker}>
               <Text style={styles.confirmText}>Confirm</Text>
             </Pressable>
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -274,6 +447,11 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: C.background,
+  },
+  centered: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   header: {
     paddingHorizontal: 16,
@@ -307,11 +485,26 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     padding: 16,
   },
+  dayHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
   dayName: {
     fontSize: 16,
     fontWeight: "700",
     color: C.textPrimary,
-    marginBottom: 12,
+  },
+  toggleWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  toggleText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: C.textMuted,
   },
   timeRow: {
     flexDirection: "row",
@@ -337,10 +530,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
   },
+  timeBoxDisabled: {
+    opacity: 0.55,
+  },
   timeText: {
     fontSize: 15,
     fontWeight: "600",
     color: C.textPrimary,
+  },
+  timeTextDisabled: {
+    color: C.textSecondary,
   },
   verifyNote: {
     fontSize: 12,
@@ -404,12 +603,16 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15, 23, 42, 0.4)",
     justifyContent: "flex-end",
   },
+  sheetDismiss: {
+    ...StyleSheet.absoluteFillObject,
+  },
   sheet: {
     backgroundColor: C.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingBottom: 28,
     paddingHorizontal: 20,
+    zIndex: 1,
   },
   sheetHandle: {
     width: 40,

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -13,6 +13,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../../constants/colors";
 import { currentUser } from "../../constants/dummyData";
+import { api, clearAuth } from "../../lib/api";
 
 type DetailRowProps = {
   icon: keyof typeof Feather.glyphMap;
@@ -38,6 +39,22 @@ export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [user, setUser] = useState(currentUser);
+
+  useEffect(() => {
+    void api.getMe().then((me) => {
+      setUser({
+        ...currentUser,
+        name: me.name,
+        firstName: me.name.split(" ")[0],
+        email: me.email,
+        phone: me.phone ?? currentUser.phone,
+        role: me.role,
+        employmentType: me.employmentType ?? currentUser.employmentType,
+        startDate: me.startDate ?? currentUser.startDate,
+      });
+    }).catch(() => undefined);
+  }, []);
 
   const handleSignOut = () => {
     Alert.alert("Sign out", "Are you sure you want to sign out?", [
@@ -45,7 +62,10 @@ export default function ProfileScreen() {
       {
         text: "Sign Out",
         style: "destructive",
-        onPress: () => router.replace("/login"),
+        onPress: async () => {
+          await clearAuth();
+          router.replace("/login");
+        },
       },
     ]);
   };
@@ -65,23 +85,23 @@ export default function ProfileScreen() {
     >
       <View style={styles.header}>
         <View style={styles.avatar}>
-          <Text style={styles.initials}>{currentUser.initials}</Text>
+          <Text style={styles.initials}>{user.initials}</Text>
         </View>
-        <Text style={styles.name}>{currentUser.name}</Text>
+        <Text style={styles.name}>{user.name}</Text>
         <Text style={styles.role}>
-          {currentUser.role} · {currentUser.employmentType}
+          {user.role} · {user.employmentType}
         </Text>
       </View>
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Profile details</Text>
-        <DetailRow icon="mail" label="Email" value={currentUser.email} />
+        <DetailRow icon="mail" label="Email" value={user.email} />
         <View style={styles.divider} />
-        <DetailRow icon="phone" label="Phone" value={currentUser.phone} />
+        <DetailRow icon="phone" label="Phone" value={user.phone} />
         <View style={styles.divider} />
-        <DetailRow icon="briefcase" label="Job Role" value={currentUser.role} />
+        <DetailRow icon="briefcase" label="Job Role" value={user.role} />
         <View style={styles.divider} />
-        <DetailRow icon="calendar" label="Start date" value={currentUser.startDate} />
+        <DetailRow icon="calendar" label="Start date" value={user.startDate} />
       </View>
 
       <View style={styles.card}>

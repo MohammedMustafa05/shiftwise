@@ -1,8 +1,25 @@
-import { Tabs } from "expo-router";
+import { Tabs, useFocusEffect } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { Colors } from "../../constants/colors";
+import { useCallback, useState } from "react";
+import { api } from "../../lib/api";
 
 export default function TabLayout() {
+  const [pending, setPending] = useState(0);
+
+  const refreshPending = useCallback(() => {
+    void api
+      .getTransferRequests()
+      .then((rows) => setPending(rows.length))
+      .catch(() => setPending(0));
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshPending();
+    }, [refreshPending]),
+  );
+
   return (
     <Tabs
       screenOptions={{
@@ -35,6 +52,11 @@ export default function TabLayout() {
         options={{
           title: "Schedule",
           tabBarIcon: ({ color, size }) => <Feather name="calendar" size={size} color={color} />,
+          tabBarBadge: pending > 0 ? pending : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: Colors.error,
+            color: Colors.textLight,
+          },
         }}
       />
       <Tabs.Screen

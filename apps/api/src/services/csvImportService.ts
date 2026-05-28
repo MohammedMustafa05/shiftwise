@@ -1,6 +1,12 @@
 import { parse } from "csv-parse/sync";
 import type { HourlySalesRow } from "@shiftwise/shared";
 import { query } from "../db/pool.js";
+import {
+  isDropChartCsv,
+  parseDropChartRecord,
+  type ParsedSalesRow,
+} from "./dropChartCsv.js";
+import { fileURLToPath } from "url";
 
 const COLUMN_ALIASES: Record<string, keyof HourlySalesRow | "salesAmount"> = {
   date: "date",
@@ -12,59 +18,98 @@ const COLUMN_ALIASES: Record<string, keyof HourlySalesRow | "salesAmount"> = {
   sales: "salesAmount",
 };
 
+export type SalesImportResult = {
+  rowsAccepted: number;
+  rowsRejected: number;
+  dateRange: { from: string | null; to: string | null };
+  format: "standard" | "drop_chart";
+};
+
+async function upsertSalesRow(
+  workplaceId: string,
+  date: string,
+  hour: number,
+  salesAmount: number,
+  stats: { accepted: number; minDate: string | null; maxDate: string | null }
+): Promise<void> {
+  await query(
+    `INSERT INTO hourly_sales_data (workplace_id, sale_date, hour, sales_amount)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (workplace_id, sale_date, hour) DO UPDATE SET sales_amount = EXCLUDED.sales_amount`,
+    [workplaceId, date, hour, salesAmount]
+  );
+  stats.accepted++;
+  if (!stats.minDate || date < stats.minDate) stats.minDate = date;
+  if (!stats.maxDate || date > stats.maxDate) stats.maxDate = date;
+}
+
+function parseStandardRecord(record: Record<string, string>): ParsedSalesRow | null {
+  const normalized: Record<string, string> = {};
+  for (const [k, v] of Object.entries(record)) {
+    normalized[k.toLowerCase().replace(/\s+/g, "_")] = v;
+  }
+
+  const dateKey = Object.keys(normalized).find((k) => COLUMN_ALIASES[k] === "date");
+  const hourKey = Object.keys(normalized).find((k) => COLUMN_ALIASES[k] === "hour");
+  const amountKey = Object.keys(normalized).find((k) => COLUMN_ALIASES[k] === "salesAmount");
+
+  if (!dateKey || !hourKey || !amountKey) return null;
+
+  const date = normalized[dateKey];
+  const hour = parseInt(normalized[hourKey], 10);
+  const salesAmount = parseFloat(normalized[amountKey].replace(/,/g, ""));
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(hour) || hour < 0 || hour > 23 || Number.isNaN(salesAmount)) {
+    return null;
+  }
+
+  return { date, hour, salesAmount };
+}
+
 export async function importSalesCsv(
   workplaceId: string,
   buffer: Buffer
-): Promise<{ rowsAccepted: number; rowsRejected: number; dateRange: { from: string | null; to: string | null } }> {
+): Promise<SalesImportResult> {
   const records = parse(buffer, {
     columns: true,
     skip_empty_lines: true,
     trim: true,
   }) as Record<string, string>[];
 
-  let accepted = 0;
+  if (records.length === 0) {
+    return {
+      rowsAccepted: 0,
+      rowsRejected: 0,
+      dateRange: { from: null, to: null },
+      format: "standard",
+    };
+  }
+
+  const headers = Object.keys(records[0]);
+  const format: SalesImportResult["format"] = isDropChartCsv(headers) ? "drop_chart" : "standard";
+
   let rejected = 0;
-  let minDate: string | null = null;
-  let maxDate: string | null = null;
+  const stats = { accepted: 0, minDate: null as string | null, maxDate: null as string | null };
 
   for (const record of records) {
-    const normalized: Record<string, string> = {};
-    for (const [k, v] of Object.entries(record)) {
-      normalized[k.toLowerCase().replace(/\s+/g, "_")] = v;
-    }
-
-    const dateKey = Object.keys(normalized).find((k) => COLUMN_ALIASES[k] === "date");
-    const hourKey = Object.keys(normalized).find((k) => COLUMN_ALIASES[k] === "hour");
-    const amountKey = Object.keys(normalized).find((k) => COLUMN_ALIASES[k] === "salesAmount");
-
-    if (!dateKey || !hourKey || !amountKey) {
+    const parsed =
+      format === "drop_chart" ? parseDropChartRecord(record) : parseStandardRecord(record);
+    if (!parsed) {
       rejected++;
       continue;
     }
-
-    const date = normalized[dateKey];
-    const hour = parseInt(normalized[hourKey], 10);
-    const salesAmount = parseFloat(normalized[amountKey]);
-
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(hour) || hour < 0 || hour > 23 || isNaN(salesAmount)) {
-      rejected++;
-      continue;
-    }
-
-    await query(
-      `INSERT INTO hourly_sales_data (workplace_id, sale_date, hour, sales_amount)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (workplace_id, sale_date, hour) DO UPDATE SET sales_amount = EXCLUDED.sales_amount`,
-      [workplaceId, date, hour, salesAmount]
-    );
-    accepted++;
-    if (!minDate || date < minDate) minDate = date;
-    if (!maxDate || date > maxDate) maxDate = date;
+    await upsertSalesRow(workplaceId, parsed.date, parsed.hour, parsed.salesAmount, stats);
   }
 
   return {
-    rowsAccepted: accepted,
+    rowsAccepted: stats.accepted,
     rowsRejected: rejected,
-    dateRange: { from: minDate, to: maxDate },
+    dateRange: { from: stats.minDate, to: stats.maxDate },
+    format,
   };
+}
+
+/** Default product sales file: apps/ml-engine/drop_chart_all_days.csv */
+export function defaultDropChartCsvPath(): string {
+  return fileURLToPath(new URL("../../../ml-engine/drop_chart_all_days.csv", import.meta.url));
 }

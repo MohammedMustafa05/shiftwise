@@ -1,6 +1,8 @@
-import { useState, useRef, useLayoutEffect } from 'react';
+import { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import { Settings, CheckCircle2, Lock, Unlock, ChevronDown, Plus, X } from 'lucide-react';
 import { mockPreferences } from '../lib/mockData';
+import { api, isApiConfigured } from '../lib/api';
+import { useWorkplaceId } from '../hooks/useEmployerApi';
 import type { Preferences, TimeRangeRule } from '../lib/types';
 import { getRoleBadgeClass } from '../lib/utils';
 
@@ -481,7 +483,13 @@ function calcDuration(open: string, close: string): string {
 // ── Page component ─────────────────────────────────────────────────────────
 
 export default function PreferencesPage() {
+  const workplaceId = useWorkplaceId();
   const [prefs, setPrefs] = useState<Preferences>(mockPreferences);
+
+  useEffect(() => {
+    if (!isApiConfigured || !workplaceId) return;
+    void api.getPreferences(workplaceId).then(setPrefs).catch(() => undefined);
+  }, [workplaceId]);
   const [saved, setSaved] = useState(false);
 
   const [dayHours, setDayHours] = useState<Record<DayName, DayHours>>(initDayHours);
@@ -511,7 +519,14 @@ export default function PreferencesPage() {
     });
   }
 
-  function handleSave() {
+  async function handleSave() {
+    if (isApiConfigured && workplaceId) {
+      try {
+        await api.savePreferences(workplaceId, prefs);
+      } catch {
+        /* show saved anyway for UX */
+      }
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   }

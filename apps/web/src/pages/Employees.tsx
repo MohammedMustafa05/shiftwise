@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react';
 import { Users, Search, Plus, X, Phone, Mail, ChevronDown, Save } from 'lucide-react';
-import { mockEmployees } from '../lib/mockData';
 import type { Employee, Role, ExperienceLevel, ShiftTier, EmployeeType } from '../lib/types';
 import {
   getRoleBadgeClass, getExperienceBadgeClass, getInitials, getAvatarColor, generateId,
 } from '../lib/utils';
+import { useEmployees } from '../hooks/useEmployerApi';
+import { api, isApiConfigured } from '../lib/api';
 
 const ROLES: Role[] = ['Cashier', 'Cook', 'Packliner'];
 const EXPERIENCE_LEVELS: ExperienceLevel[] = ['Veteran', 'Intermediate', 'Trainee'];
@@ -340,7 +341,7 @@ function EmployeeDrawer({
 }
 
 export default function Employees() {
-  const [employees, setEmployees] = useState<Employee[]>(mockEmployees);
+  const { employees, setEmployees, workplaceId } = useEmployees();
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState<string>('All');
   const [filterExp, setFilterExp] = useState<string>('All');
@@ -357,7 +358,27 @@ export default function Employees() {
     );
   }), [employees, search, filterRole, filterExp, filterType]);
 
-  function handleSave(emp: Employee) {
+  async function handleSave(emp: Employee) {
+    if (isApiConfigured && workplaceId) {
+      try {
+        const isNew = !employees.some(e => e.id === emp.id);
+        const saved = isNew
+          ? await api.createEmployee(workplaceId, emp)
+          : await api.updateEmployee(workplaceId, emp);
+        setEmployees(prev => {
+          const idx = prev.findIndex(e => e.id === emp.id);
+          if (idx >= 0) {
+            const n = [...prev];
+            n[idx] = saved;
+            return n;
+          }
+          return [...prev, saved];
+        });
+        return;
+      } catch {
+        /* fall through to local update */
+      }
+    }
     setEmployees(prev => {
       const idx = prev.findIndex(e => e.id === emp.id);
       if (idx >= 0) { const n = [...prev]; n[idx] = emp; return n; }

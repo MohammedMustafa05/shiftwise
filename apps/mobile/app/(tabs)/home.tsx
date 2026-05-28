@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -5,17 +6,87 @@ import StatCard from "../../components/StatCard";
 import TeamMemberChip from "../../components/TeamMemberChip";
 import { Colors } from "../../constants/colors";
 import {
-  announcements,
+  announcements as fallbackAnnouncements,
   currentUser,
   nextShift,
-  stats,
+  stats as mockStats,
   teamOnShiftToday,
 } from "../../constants/dummyData";
+import { api } from "../../lib/api";
+import { formatDateYmd, getMondayForOffset } from "../../lib/time";
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const [profile, setProfile] = useState(currentUser);
+  const [stats, setStats] = useState(mockStats);
+  const [upcoming, setUpcoming] = useState(nextShift);
+  const [teamToday, setTeamToday] = useState(teamOnShiftToday);
+  const [announcementItems, setAnnouncementItems] = useState(fallbackAnnouncements);
 
-  const shiftSummary = `${nextShift.name} · ${nextShift.dayShort} ${nextShift.date} · ${nextShift.startTime}–${nextShift.endTime} · ${nextShift.location}`;
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [me, s, announcements] = await Promise.all([
+          api.getMe(),
+          api.getStats(),
+          api.getAnnouncements(),
+        ]);
+        setProfile({
+          ...currentUser,
+          firstName: me.name.split(" ")[0],
+          email: me.email,
+          location: me.location ?? me.workplaceName,
+        });
+        setStats({
+          shiftsThisWeek: s.shiftsThisWeek,
+          hoursThisWeek: s.hoursThisWeek,
+          daysOff: s.daysOff,
+        });
+        if (s.nextShift) {
+          setUpcoming({
+            name: me.role,
+            dayShort: new Date(s.nextShift.shiftDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" }),
+            date: s.nextShift.shiftDate,
+            startTime: s.nextShift.startTime,
+            endTime: s.nextShift.endTime,
+            location: s.nextShift.location ?? me.workplaceName,
+          });
+        }
+
+        const weekStart = formatDateYmd(getMondayForOffset(0));
+        const today = formatDateYmd(new Date());
+        const team = await api.getTeamSchedule(me.workplaceId, weekStart);
+        const onToday = team.filter((t) => t.shiftDate === today);
+        const unique = new Map<string, { id: string; name: string; role: string }>();
+        for (const t of onToday) {
+          if (!unique.has(t.employeeId)) {
+            unique.set(t.employeeId, {
+              id: t.employeeId,
+              name: t.employeeName,
+              role: t.role,
+            });
+          }
+        }
+        setTeamToday(
+          [...unique.values()].map((m) => ({
+            id: m.id,
+            name: m.name,
+            initials: m.name.split(" ").map((n) => n[0]).join("").slice(0, 2),
+            role: m.role,
+          })),
+        );
+        if (announcements.length > 0) {
+          setAnnouncementItems(
+            announcements.map((a) => ({ id: a.id, title: a.title, date: a.date })),
+          );
+        }
+      } catch {
+        /* use mock data */
+      }
+    })();
+  }, []);
+
+  const shiftSummary = `${upcoming.name} · ${upcoming.dayShort} ${upcoming.date} · ${upcoming.startTime}–${upcoming.endTime} · ${upcoming.location}`;
 
   return (
     <ScrollView
@@ -30,11 +101,11 @@ export default function HomeScreen() {
         <Text style={styles.wordmark}>Shiftwise</Text>
         <View style={styles.locationRow}>
           <Feather name="map-pin" size={14} color={Colors.textMuted} />
-          <Text style={styles.location}>{currentUser.location}</Text>
+          <Text style={styles.location}>{profile.location}</Text>
         </View>
       </View>
 
-      <Text style={styles.greeting}>Good morning, {currentUser.firstName}</Text>
+      <Text style={styles.greeting}>Good morning, {profile.firstName}</Text>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Next shift</Text>
@@ -65,7 +136,7 @@ export default function HomeScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.teamScroll}
         >
-          {teamOnShiftToday.map((member) => (
+          {teamToday.map((member) => (
             <View key={member.id} style={styles.teamChipWrap}>
               <TeamMemberChip member={member} />
             </View>
@@ -75,7 +146,7 @@ export default function HomeScreen() {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Announcements</Text>
-        {announcements.map((item) => (
+        {announcementItems.map((item) => (
           <View key={item.id} style={styles.announcementCard}>
             <View style={styles.announcementIcon}>
               <Feather name="bell" size={18} color={Colors.primary} />

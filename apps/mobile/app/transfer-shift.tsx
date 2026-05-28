@@ -1,8 +1,7 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,144 +13,381 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../constants/colors";
-import { currentUser } from "../constants/dummyData";
-import type { Shift } from "../constants/dummyData";
-import { transferableShifts, transferRecipients } from "../constants/transferData";
-import { addTransferRequest } from "../lib/transferStore";
+import { api, getStoredUser } from "../lib/api";
+import {
+  formatDateYmd,
+  formatRoleLabel,
+  formatShiftDateLabel,
+  formatShiftTimeRange,
+  getMondayForOffset,
+  shiftDurationLabel,
+} from "../lib/time";
 
-function formatShiftTime(shift: Shift) {
-  return `${shift.dayShort} ${shift.date} · ${shift.startTime} – ${shift.endTime}`;
+type Coworker = {
+  id: string;
+  name: string;
+  role: string;
+  availability: "available" | "limited";
+};
+
+type MyShift = {
+  id: string;
+  name: string;
+  dateLabel: string;
+  time: string;
+  duration: string;
+};
+
+type TeamShift = {
+  id: string;
+  employeeId: string;
+  shiftDate: string;
+  startTime: string;
+  endTime: string;
+  role: string;
+};
+
+function initials(name: string) {
+  return name
+    .split(" ")
+    .map((p) => p[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function shiftDisplayName(role: string, startTime: string): string {
+  const hour = parseInt(startTime.slice(0, 2), 10);
+  if (hour < 12) return `${formatRoleLabel(role)} · Morning`;
+  if (hour < 17) return `${formatRoleLabel(role)} · Afternoon`;
+  return `${formatRoleLabel(role)} · Evening`;
 }
 
 export default function TransferShiftScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [step, setStep] = useState<1 | 2>(1);
+  const [query, setQuery] = useState("");
+  const [selectedCoworkerId, setSelectedCoworkerId] = useState<string | null>(null);
   const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
-  const [selectedRecipientId, setSelectedRecipientId] = useState<string | null>(null);
-  const [note, setNote] = useState("");
+  const [selectedTargetShiftId, setSelectedTargetShiftId] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [coworkers, setCoworkers] = useState<Coworker[]>([]);
+  const [myShifts, setMyShifts] = useState<MyShift[]>([]);
+  const [teamShifts, setTeamShifts] = useState<TeamShift[]>([]);
 
-  const selectedShift = transferableShifts.find((s) => s.id === selectedShiftId);
-  const selectedRecipient = transferRecipients.find((r) => r.id === selectedRecipientId);
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const weekStart = formatDateYmd(getMondayForOffset(0));
+      const user = await getStoredUser();
+      const [coworkerRows, schedule, team] = await Promise.all([
+        api.getCoworkers(),
+        api.getMySchedule(weekStart),
+        user?.workplaceId
+          ? api.getTeamSchedule(user.workplaceId, weekStart)
+          : Promise.resolve([]),
+      ]);
 
-  const canSend = Boolean(selectedShift && selectedRecipient);
+      const teamByEmployee = new Set(team.map((t) => t.employeeId));
+      setCoworkers(
+        coworkerRows.map((c) => ({
+          id: c.id,
+          name: c.name,
+          role: formatRoleLabel(c.role),
+          availability: teamByEmployee.has(c.id) ? "available" : "limited",
+        })),
+      );
+      setMyShifts(
+        schedule.shifts.map((s) => ({
+          id: s.id,
+          name: shiftDisplayName(s.role, s.startTime),
+          dateLabel: formatShiftDateLabel(s.shiftDate),
+          time: formatShiftTimeRange(s.startTime, s.endTime),
+          duration: shiftDurationLabel(s.startTime, s.endTime),
+        })),
+      );
+      setTeamShifts(team);
+    } catch (e) {
+      Alert.alert(
+        "Could not load shifts",
+        e instanceof Error ? e.message : "Check that a schedule is published for this week.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const handleSend = () => {
-    if (!selectedShift || !selectedRecipient) return;
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
-    addTransferRequest({
-      fromUserId: currentUser.id,
-      fromUserName: currentUser.name,
-      toUserId: selectedRecipient.id,
-      toUserName: selectedRecipient.name,
-      shift: selectedShift,
-      note: note.trim() || undefined,
-    });
-
-    Alert.alert(
-      "Request sent",
-      `${selectedRecipient.name} will be notified. You'll get an update when they respond.`,
-      [{ text: "OK", onPress: () => router.back() }],
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return coworkers;
+    return coworkers.filter(
+      (c) => c.name.toLowerCase().includes(q) || c.role.toLowerCase().includes(q),
     );
+  }, [query, coworkers]);
+
+  const selectedCoworker = coworkers.find((c) => c.id === selectedCoworkerId);
+  const coworkerShifts = useMemo(() => {
+    if (!selectedCoworkerId) return [];
+    return teamShifts
+      .filter((s) => s.employeeId === selectedCoworkerId)
+      .sort((a, b) => a.shiftDate.localeCompare(b.shiftDate) || a.startTime.localeCompare(b.startTime))
+      .map((s) => ({
+        id: s.id,
+        name: shiftDisplayName(s.role, s.startTime),
+        dateLabel: formatShiftDateLabel(s.shiftDate),
+        time: formatShiftTimeRange(s.startTime, s.endTime),
+        duration: shiftDurationLabel(s.startTime, s.endTime),
+      }));
+  }, [selectedCoworkerId, teamShifts]);
+
+  const isSwap = coworkerShifts.length > 0;
+  const canSend =
+    Boolean(selectedShiftId) &&
+    (!isSwap || Boolean(selectedTargetShiftId)) &&
+    !sent &&
+    !sending &&
+    myShifts.length > 0;
+
+  const sendRequest = async () => {
+    if (!selectedCoworker || !selectedShiftId || sending || !canSend) return;
+    setSending(true);
+    try {
+      await api.createTransfer(selectedShiftId, selectedCoworker.id, {
+        targetShiftId: selectedTargetShiftId ?? undefined,
+      });
+      setSent(true);
+      setTimeout(() => router.back(), 2000);
+    } catch (e) {
+      Alert.alert("Request failed", e instanceof Error ? e.message : "Please try again");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
+    <View style={styles.flex}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable style={styles.backBtn} onPress={() => router.back()} hitSlop={8}>
+        <Pressable
+          style={styles.backBtn}
+          onPress={() => {
+            if (step === 2 && !sent) {
+              setStep(1);
+              setSelectedShiftId(null);
+              setSelectedTargetShiftId(null);
+              return;
+            }
+            router.back();
+          }}
+          hitSlop={8}
+        >
           <Feather name="arrow-left" size={22} color={Colors.textPrimary} />
         </Pressable>
-        <Text style={styles.headerTitle}>Transfer My Shift</Text>
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerTitle}>Transfer My Shift</Text>
+          <Text style={styles.headerSub}>Switch your shift with a coworker</Text>
+        </View>
         <View style={styles.backBtn} />
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: insets.bottom + 100 },
-        ]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        <Text style={styles.sectionLabel}>1. Select your shift</Text>
-        <View style={styles.section}>
-          {transferableShifts.map((shift) => {
-            const selected = shift.id === selectedShiftId;
-            return (
-              <Pressable
-                key={shift.id}
-                style={[styles.option, selected && styles.optionSelected]}
-                onPress={() => setSelectedShiftId(shift.id)}
-              >
-                <View style={[styles.radio, selected && styles.radioSelected]}>
-                  {selected && <View style={styles.radioInner} />}
-                </View>
-                <View style={styles.optionBody}>
-                  <Text style={styles.optionTitle}>{shift.name}</Text>
-                  <Text style={styles.optionMeta}>{formatShiftTime(shift)}</Text>
-                  <Text style={styles.optionMeta}>{shift.location}</Text>
-                </View>
-              </Pressable>
-            );
-          })}
+      {loading ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={Colors.primary} />
         </View>
+      ) : (
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.progressRow}>
+            <View style={[styles.progressDot, step === 1 && styles.progressDotActive]} />
+            <View style={[styles.progressDot, step === 2 && styles.progressDotActive]} />
+            <Text style={styles.progressText}>Step {step} of 2</Text>
+          </View>
 
-        <Text style={styles.sectionLabel}>2. Transfer to</Text>
-        <View style={styles.section}>
-          {transferRecipients.map((person) => {
-            const selected = person.id === selectedRecipientId;
-            return (
-              <Pressable
-                key={person.id}
-                style={[styles.option, selected && styles.optionSelected]}
-                onPress={() => setSelectedRecipientId(person.id)}
-              >
-                <View style={[styles.radio, selected && styles.radioSelected]}>
-                  {selected && <View style={styles.radioInner} />}
-                </View>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{person.initials}</Text>
-                </View>
-                <View style={styles.optionBody}>
-                  <Text style={styles.optionTitle}>{person.name}</Text>
-                  <Text style={styles.optionMeta}>{person.role}</Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
+          {step === 1 ? (
+            <>
+              <Text style={styles.sectionTitle}>Who do you want to switch with?</Text>
 
-        <Text style={styles.sectionLabel}>3. Add a note (optional)</Text>
-        <TextInput
-          style={styles.noteInput}
-          placeholder="Reason for transfer, preferences, etc."
-          placeholderTextColor={Colors.textMuted}
-          value={note}
-          onChangeText={setNote}
-          multiline
-          maxLength={280}
-        />
-      </ScrollView>
+              <View style={styles.searchWrap}>
+                <Feather name="search" size={16} color={Colors.textMuted} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search coworkers..."
+                  placeholderTextColor={Colors.textMuted}
+                  value={query}
+                  onChangeText={setQuery}
+                />
+              </View>
+
+              <View style={styles.section}>
+                {filtered.length === 0 ? (
+                  <Text style={styles.emptyHint}>No coworkers found</Text>
+                ) : (
+                  filtered.map((person) => {
+                    const selected = selectedCoworkerId === person.id;
+                    const available = person.availability === "available";
+                    return (
+                      <Pressable
+                        key={person.id}
+                        style={[styles.option, selected && styles.optionSelected]}
+                        onPress={() => {
+                          setSelectedCoworkerId(person.id);
+                          setSelectedTargetShiftId(null);
+                        }}
+                      >
+                        <View
+                          style={[
+                            styles.avatar,
+                            { backgroundColor: available ? "#C7D2FE" : "#E2E8F0" },
+                          ]}
+                        >
+                          <Text style={styles.avatarText}>{initials(person.name)}</Text>
+                        </View>
+                        <View style={styles.optionBody}>
+                          <Text style={styles.optionTitle}>{person.name}</Text>
+                          <Text style={styles.optionMeta}>{person.role}</Text>
+                          <View style={styles.availabilityRow}>
+                            <View
+                              style={[
+                                styles.availabilityDot,
+                                {
+                                  backgroundColor: available ? Colors.success : Colors.textMuted,
+                                },
+                              ]}
+                            />
+                            <Text style={styles.availabilityText}>
+                              {available ? "Scheduled this week" : "Limited availability"}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={[styles.radio, selected && styles.radioSelected]}>
+                          {selected && <View style={styles.radioInner} />}
+                        </View>
+                      </Pressable>
+                    );
+                  })
+                )}
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={styles.sectionTitle}>Which shift do you want to give?</Text>
+              <View style={styles.section}>
+                {myShifts.length === 0 ? (
+                  <Text style={styles.emptyHint}>
+                    No published shifts this week. Ask your manager to publish the schedule first.
+                  </Text>
+                ) : (
+                  myShifts.map((shift) => {
+                    const selected = selectedShiftId === shift.id;
+                    return (
+                      <Pressable
+                        key={shift.id}
+                        style={[styles.shiftCard, selected && styles.optionSelected]}
+                        onPress={() => setSelectedShiftId(shift.id)}
+                      >
+                        <View style={styles.shiftBar} />
+                        <View style={styles.optionBody}>
+                          <Text style={styles.optionTitle}>{shift.name}</Text>
+                          <Text style={styles.optionMeta}>{shift.dateLabel}</Text>
+                          <Text style={styles.optionMeta}>{shift.time}</Text>
+                        </View>
+                        <View style={styles.durationPill}>
+                          <Text style={styles.durationText}>{shift.duration}</Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })
+                )}
+              </View>
+              {selectedCoworker && coworkerShifts.length > 0 ? (
+                <>
+                  <Text style={styles.sectionSubTitle}>
+                    {selectedCoworker.name}'s shift you will receive
+                  </Text>
+                  <View style={styles.section}>
+                    {coworkerShifts.map((shift) => {
+                      const selected = selectedTargetShiftId === shift.id;
+                      return (
+                        <Pressable
+                          key={shift.id}
+                          style={[styles.coworkerShiftCard, selected && styles.optionSelected]}
+                          onPress={() => setSelectedTargetShiftId(shift.id)}
+                        >
+                          <View style={styles.shiftBar} />
+                          <View style={styles.optionBody}>
+                            <Text style={styles.optionTitle}>{shift.name}</Text>
+                            <Text style={styles.optionMeta}>{shift.dateLabel}</Text>
+                            <Text style={styles.optionMeta}>{shift.time}</Text>
+                          </View>
+                          <View style={styles.durationPill}>
+                            <Text style={styles.durationText}>{shift.duration}</Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : null}
+              <Text style={styles.noteInfo}>
+                {isSwap
+                  ? "The selected coworker must accept before both shifts are swapped"
+                  : "The selected coworker will be notified and must accept before the shift is transferred"}
+              </Text>
+            </>
+          )}
+
+          {sent ? (
+            <View style={styles.successCard}>
+              <Feather name="check-circle" size={36} color={Colors.success} />
+              <Text style={styles.successTitle}>Request Sent!</Text>
+              <Text style={styles.successSub}>
+                {selectedCoworker?.name ?? "Coworker"} will be notified
+              </Text>
+              <ActivityIndicator color={Colors.primary} style={{ marginTop: 8 }} />
+            </View>
+          ) : null}
+        </ScrollView>
+      )}
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
-        <Pressable
-          style={[styles.sendBtn, !canSend && styles.sendBtnDisabled]}
-          onPress={handleSend}
-          disabled={!canSend}
-        >
-          <Feather name="send" size={18} color={Colors.textLight} />
-          <Text style={styles.sendText}>Send Request</Text>
-        </Pressable>
+        {step === 1 ? (
+          <Pressable
+            style={[styles.sendBtn, !selectedCoworkerId && styles.sendBtnDisabled]}
+            onPress={() => setStep(2)}
+            disabled={!selectedCoworkerId || loading}
+          >
+            <Text style={styles.sendText}>Next: Select Your Shift</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            style={[styles.sendBtn, !canSend && styles.sendBtnDisabled]}
+            onPress={() => void sendRequest()}
+            disabled={!canSend}
+          >
+            {sending ? (
+              <ActivityIndicator color={Colors.textLight} />
+            ) : (
+              <Text style={styles.sendText}>Send Switch Request</Text>
+            )}
+          </Pressable>
+        )}
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: Colors.background },
+  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -163,17 +399,38 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
   },
   backBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  headerTitle: { fontSize: 17, fontWeight: "700", color: Colors.textPrimary },
+  headerCenter: { flex: 1, alignItems: "center" },
+  headerTitle: { fontSize: 18, fontWeight: "700", color: Colors.textPrimary },
+  headerSub: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
   scroll: { flex: 1 },
   content: { padding: 16 },
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: "600",
+  progressRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
+  progressDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.border },
+  progressDotActive: { backgroundColor: Colors.primary },
+  progressText: { fontSize: 12, color: Colors.textMuted, marginLeft: 4 },
+  sectionTitle: { fontSize: 18, fontWeight: "700", color: Colors.textPrimary, marginBottom: 10 },
+  sectionSubTitle: {
+    fontSize: 14,
+    fontWeight: "700",
     color: Colors.textSecondary,
-    marginBottom: 10,
-    marginTop: 8,
+    marginTop: 14,
+    marginBottom: 8,
   },
-  section: { gap: 8, marginBottom: 8 },
+  emptyHint: { fontSize: 14, color: Colors.textMuted, lineHeight: 20, paddingVertical: 8 },
+  searchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 12,
+    height: 46,
+    marginBottom: 10,
+  },
+  searchInput: { flex: 1, fontSize: 15, color: Colors.textPrimary },
+  section: { gap: 8 },
   option: {
     flexDirection: "row",
     alignItems: "center",
@@ -184,10 +441,42 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     padding: 14,
   },
-  optionSelected: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primaryLight,
+  shiftCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 14,
   },
+  coworkerShiftCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 14,
+  },
+  shiftBar: { width: 4, alignSelf: "stretch", borderRadius: 2, backgroundColor: Colors.primary },
+  optionSelected: { borderColor: Colors.primary },
+  avatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: { color: Colors.primaryDark, fontWeight: "700", fontSize: 13 },
+  optionBody: { flex: 1 },
+  optionTitle: { fontSize: 15, fontWeight: "700", color: Colors.textPrimary },
+  optionMeta: { fontSize: 13, color: Colors.textMuted, marginTop: 2 },
+  availabilityRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+  availabilityDot: { width: 7, height: 7, borderRadius: 4 },
+  availabilityText: { fontSize: 12, color: Colors.textSecondary },
   radio: {
     width: 20,
     height: 20,
@@ -198,35 +487,32 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   radioSelected: { borderColor: Colors.primary },
-  radioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.primary,
+  radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.primary },
+  durationPill: {
+    backgroundColor: Colors.primaryLight,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
+  durationText: { fontSize: 12, color: Colors.primary, fontWeight: "700" },
+  noteInfo: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginTop: 12,
+    fontStyle: "italic",
+    lineHeight: 18,
   },
-  avatarText: { color: Colors.textLight, fontWeight: "700", fontSize: 13 },
-  optionBody: { flex: 1 },
-  optionTitle: { fontSize: 15, fontWeight: "600", color: Colors.textPrimary },
-  optionMeta: { fontSize: 13, color: Colors.textMuted, marginTop: 2 },
-  noteInput: {
+  successCard: {
+    marginTop: 16,
     backgroundColor: Colors.surface,
-    borderRadius: 14,
     borderWidth: 1,
-    borderColor: Colors.border,
-    padding: 14,
-    minHeight: 100,
-    fontSize: 15,
-    color: Colors.textPrimary,
-    textAlignVertical: "top",
+    borderColor: "#BBF7D0",
+    borderRadius: 14,
+    padding: 16,
+    alignItems: "center",
   },
+  successTitle: { fontSize: 18, fontWeight: "700", color: Colors.success, marginTop: 6 },
+  successSub: { fontSize: 13, color: Colors.textMuted, marginTop: 4 },
   footer: {
     position: "absolute",
     left: 0,
@@ -239,10 +525,8 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.border,
   },
   sendBtn: {
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
     backgroundColor: Colors.primary,
     borderRadius: 14,
     height: 52,

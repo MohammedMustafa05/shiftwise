@@ -10,10 +10,12 @@ import {
   Pencil, Users, Trash2, Plus, Unlock,
 } from 'lucide-react';
 import { format, addDays, addWeeks, subWeeks, parseISO } from 'date-fns';
-import { mockShifts, mockSchedule, mockEmployees } from '../lib/mockData';
-import type { Shift, Role, Employee } from '../lib/types';
-import { supabase } from '../lib/supabase';
+import { mockShifts, mockSchedule } from '../lib/mockData';
+import type { Shift, Role, Employee, ScheduleFlag, Preferences } from '../lib/types';
 import { getExperienceBadgeClass, generateId } from '../lib/utils';
+import { api, isApiConfigured, loadScheduleWithEmployees } from '../lib/api';
+import { getToken } from '../lib/api/client';
+import { useEmployees } from '../hooks/useEmployerApi';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -46,6 +48,13 @@ function fmtHour(h: number): string {
   return h > 12 ? `${h - 12} PM` : `${h} AM`;
 }
 
+function formatGeneratedAt(iso: string): string {
+  if (!iso) return 'Not generated yet';
+  const d = parseISO(iso);
+  if (Number.isNaN(d.getTime())) return 'Not generated yet';
+  return format(d, 'MMM d, h:mm a');
+}
+
 function getBlockColors(role: Role) {
   switch (role) {
     case 'Cashier':   return { bg: 'rgba(129,140,248,0.30)', hoverBg: 'rgba(129,140,248,0.46)', border: '#818CF8' };
@@ -58,14 +67,42 @@ function getDisplayName(emp?: Employee): string {
   return emp?.preferred_name ?? emp?.name?.split(' ')[0] ?? 'Unassigned';
 }
 
-function getRoleCoverage(dateStr: string, role: Role, shifts: Shift[]): 'full' | 'partial' | 'none' {
+function parseHour(t: string): number {
+  return parseInt(t.split(':')[0], 10);
+}
+
+function roleMinForDay(prefs: Preferences | null, dateStr: string, role: Role): number {
+  if (!prefs) return 0;
+  const dayName = format(parseISO(dateStr), 'EEEE').toLowerCase();
+  const bands = prefs.role_requirements[dayName] ?? prefs.role_requirements[dayName.charAt(0).toUpperCase() + dayName.slice(1)] ?? [];
+  const key = role === 'Cashier' ? 'cashiers' : role === 'Cook' ? 'cooks' : 'packliners';
+  let total = 0;
+  for (const band of bands) {
+    const from = parseHour(band.from);
+    const to = parseHour(band.to);
+    const count = band[key as keyof typeof band] as number;
+    const hours = to > from ? to - from : 24 - from + to;
+    total = Math.max(total, count * Math.max(1, hours));
+  }
+  return total;
+}
+
+function getRoleCoverage(
+  dateStr: string,
+  role: Role,
+  shifts: Shift[],
+  prefs: Preferences | null
+): 'full' | 'partial' | 'none' {
   const rs = shifts.filter(s => s.date === dateStr && s.role === role);
-  if (!rs.length) return 'none';
+  const minRequired = roleMinForDay(prefs, dateStr, role);
+  if (!rs.length) return minRequired > 0 ? 'none' : 'none';
   let uncovered = 0;
   for (const h of HOURS) {
     if (!rs.some(s => parseInt(s.start_time) <= h && parseInt(s.end_time) > h)) uncovered++;
   }
-  return uncovered === 0 ? 'full' : 'partial';
+  if (uncovered === 0) return 'full';
+  if (minRequired > 0 && rs.length < minRequired) return 'partial';
+  return 'partial';
 }
 
 interface ShiftWithLane { shift: Shift; lane: number; maxLanes: number; }
@@ -95,8 +132,8 @@ function assignLanes(roleShifts: Shift[]): ShiftWithLane[] {
   });
 }
 
-function getAvailableEmployees(role: Role, dateStr: string, hour: number, shifts: Shift[], excludeShiftId?: string): Employee[] {
-  return mockEmployees.filter(emp => {
+function getAvailableEmployees(employees: Employee[], role: Role, dateStr: string, hour: number, shifts: Shift[], excludeShiftId?: string): Employee[] {
+  return employees.filter(emp => {
     if (!emp.role.includes(role)) return false;
     return !shifts.some(s =>
       s.id !== excludeShiftId && s.employee_id === emp.id && s.date === dateStr &&
@@ -105,24 +142,27 @@ function getAvailableEmployees(role: Role, dateStr: string, hour: number, shifts
   });
 }
 
-// ─── Persistence ─────────────────────────────────────────────────────────────
+// ─── Persistence (bound in Schedule component via scheduleApi ref) ───────────
+type ScheduleApi = {
+  update: (id: string, updates: Record<string, unknown>) => Promise<void>;
+  create: (shift: Record<string, unknown>) => Promise<void>;
+  remove: (id: string) => Promise<void>;
+};
 
-async function persistShiftUpdate(id: string, updates: Record<string, unknown>): Promise<void> {
-  if (!supabase) { await new Promise(r => setTimeout(r, 200)); return; }
-  const { error } = await supabase.from('shifts').update(updates).eq('id', id);
-  if (error) throw new Error(error.message);
+let scheduleApi: ScheduleApi = {
+  async update() { await new Promise(r => setTimeout(r, 200)); },
+  async create() { await new Promise(r => setTimeout(r, 200)); },
+  async remove() { await new Promise(r => setTimeout(r, 200)); },
+};
+
+async function persistShiftUpdate(id: string, updates: Record<string, unknown>) {
+  return scheduleApi.update(id, updates);
 }
-
-async function persistShiftCreate(shift: Record<string, unknown>): Promise<void> {
-  if (!supabase) { await new Promise(r => setTimeout(r, 200)); return; }
-  const { error } = await supabase.from('shifts').insert(shift);
-  if (error) throw new Error(error.message);
+async function persistShiftCreate(shift: Record<string, unknown>) {
+  return scheduleApi.create(shift);
 }
-
-async function persistShiftDelete(id: string): Promise<void> {
-  if (!supabase) { await new Promise(r => setTimeout(r, 200)); return; }
-  const { error } = await supabase.from('shifts').delete().eq('id', id);
-  if (error) throw new Error(error.message);
+async function persistShiftDelete(id: string) {
+  return scheduleApi.remove(id);
 }
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
@@ -386,9 +426,11 @@ function ChipDragPreview({ shift }: { shift: Shift }) {
 type OccupiedMode = 'view' | 'edit' | 'reassign' | 'confirm-remove';
 type EmptyStep = 'pick-employee' | 'pick-time';
 
-function ContextMenuPopover({ state, shifts, onClose, onCreateShift, onUpdateShift, onRemoveShift }: {
+function ContextMenuPopover({ state, shifts, employees, scheduleId, onClose, onCreateShift, onUpdateShift, onRemoveShift }: {
   state: ContextMenuState;
   shifts: Shift[];
+  employees: Employee[];
+  scheduleId: string;
   onClose: () => void;
   onCreateShift: (s: Shift) => void;
   onUpdateShift: (id: string, updates: Partial<Shift>) => void;
@@ -446,7 +488,7 @@ function ContextMenuPopover({ state, shifts, onClose, onCreateShift, onUpdateShi
 
   if (state.kind === 'empty') {
     const { dateStr, role, hour } = state;
-    const available = getAvailableEmployees(role, dateStr, hour, shifts);
+    const available = getAvailableEmployees(employees, role, dateStr, hour, shifts);
 
     return (
       <div ref={ref} style={baseStyle}>
@@ -500,7 +542,7 @@ function ContextMenuPopover({ state, shifts, onClose, onCreateShift, onUpdateShi
               <button
                 onClick={() => {
                   const ns: Shift = {
-                    id: generateId(), schedule_id: mockSchedule.id,
+                    id: generateId(), schedule_id: scheduleId,
                     employee_id: selectedEmp.id, employee: selectedEmp,
                     role, date: dateStr,
                     start_time: `${newStart}:00`, end_time: `${newEnd}:00`,
@@ -592,7 +634,7 @@ function ContextMenuPopover({ state, shifts, onClose, onCreateShift, onUpdateShi
   }
 
   if (occMode === 'reassign') {
-    const available = getAvailableEmployees(shift.role, shift.date, parseInt(shift.start_time), shifts, shift.id);
+    const available = getAvailableEmployees(employees, shift.role, shift.date, parseInt(shift.start_time), shifts, shift.id);
     return (
       <div ref={ref} style={baseStyle}>
         {backBtn('Reassign Employee', () => setOccMode('view'))}
@@ -662,16 +704,93 @@ function exportClearviewCsv(shifts: Shift[], weekDays: Date[]) {
 // ─── Schedule Page ────────────────────────────────────────────────────────────
 
 export default function Schedule() {
-  const [weekStart, setWeekStart] = useState(new Date('2024-05-20'));
-  const [shifts, setShifts] = useState<Shift[]>(mockShifts);
-  const [schedule, setSchedule] = useState(mockSchedule);
+  const { employees, workplaceId } = useEmployees();
+  const [weekStart, setWeekStart] = useState(() => {
+    const d = new Date();
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    d.setHours(12, 0, 0, 0);
+    return d;
+  });
+  const [shifts, setShifts] = useState<Shift[]>(isApiConfigured ? [] : mockShifts);
+  const [schedule, setSchedule] = useState(isApiConfigured
+    ? { id: '', week_start_date: format(new Date(), 'yyyy-MM-dd'), status: 'draft' as const, generated_at: '', last_modified: '' }
+    : mockSchedule);
   const [generating, setGenerating] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [preferences, setPreferences] = useState<Preferences | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const weekStr = format(weekStart, 'yyyy-MM-dd');
+
+  useEffect(() => {
+    scheduleApi = {
+      async update(id, updates) {
+        if (!isApiConfigured || !schedule.id) {
+          await new Promise(r => setTimeout(r, 200));
+          return;
+        }
+        await api.updateShift(schedule.id, id, updates, employees);
+      },
+      async create(shift) {
+        if (!isApiConfigured || !schedule.id) {
+          await new Promise(r => setTimeout(r, 200));
+          return;
+        }
+        await api.createShift(schedule.id, {
+          employeeId: String(shift.employee_id),
+          shiftDate: String(shift.date),
+          startTime: String(shift.start_time),
+          endTime: String(shift.end_time),
+          role: String(shift.role),
+          isLocked: Boolean(shift.is_locked),
+        }, employees);
+      },
+      async remove(id) {
+        if (!isApiConfigured || !schedule.id) {
+          await new Promise(r => setTimeout(r, 200));
+          return;
+        }
+        await api.deleteShift(schedule.id, id);
+      },
+    };
+  }, [schedule.id, employees]);
+
+  const loadWeek = useCallback(async () => {
+    if (!isApiConfigured || !workplaceId) return;
+    try {
+      const detail = await api.getScheduleByWeek(workplaceId, weekStr);
+      if (detail) {
+        const mapped = loadScheduleWithEmployees(detail, employees);
+        setSchedule(mapped.schedule);
+        setShifts(mapped.shifts);
+      } else {
+        setSchedule({
+          id: '',
+          week_start_date: weekStr,
+          status: 'draft',
+          generated_at: new Date().toISOString(),
+          last_modified: new Date().toISOString(),
+        });
+        setShifts([]);
+      }
+    } catch {
+      /* keep local state */
+    }
+  }, [workplaceId, weekStr, employees]);
+
+  useEffect(() => {
+    void loadWeek();
+  }, [loadWeek]);
+
+  useEffect(() => {
+    if (!isApiConfigured || !workplaceId) return;
+    void api.getPreferences(workplaceId).then(setPreferences).catch(() => setPreferences(null));
+  }, [workplaceId]);
 
   const activeShift = activeId
     ? shifts.find(s => s.id === activeId.replace('shift-', '').replace('chip-', ''))
@@ -747,7 +866,7 @@ export default function Schedule() {
       if (!src) return;
       const { dateStr, role, hour } = over.data.current as CellDropData;
       const ns: Shift = {
-        id: generateId(), schedule_id: mockSchedule.id,
+        id: generateId(), schedule_id: schedule.id,
         employee_id: src.employee_id, employee: src.employee,
         role, date: dateStr,
         start_time: `${hour}:00`, end_time: `${Math.min(22, hour + 8)}:00`,
@@ -807,16 +926,74 @@ export default function Schedule() {
     });
   }
 
-  function handleGenerate() {
+  async function handleGenerate() {
     setGenerating(true);
-    setTimeout(() => {
+    try {
+      if (isApiConfigured) {
+        const result = await api.generateSchedule(weekStr);
+        setSchedule(s => ({
+          ...s,
+          id: result.scheduleId,
+          status: 'draft',
+          week_start_date: weekStr,
+          generated_at: new Date().toISOString(),
+          ml_metadata: {
+            workersNeeded: result.workersNeeded,
+            flags: result.flags ?? [],
+            engineVersion: '2.0.0',
+          },
+        }));
+        await loadWeek();
+        if (result.flags?.length) {
+          addToast(`Generated with ${result.flags.length} alert(s)`, 'error');
+        } else {
+          addToast('Schedule generated', 'success');
+        }
+      } else {
+        await new Promise(r => setTimeout(r, 2200));
+        setSchedule(s => ({ ...s, status: 'draft', generated_at: new Date().toISOString() }));
+      }
+    } catch {
+      addToast('Failed to generate schedule', 'error');
+    } finally {
       setGenerating(false);
-      setSchedule(s => ({ ...s, status: 'draft', generated_at: new Date().toISOString() }));
-    }, 2200);
+    }
   }
 
-  function handlePublish() { setSchedule(s => ({ ...s, status: 'published' })); }
-  function handlePublishAndExport() { handlePublish(); exportClearviewCsv(shifts, weekDays); }
+  async function handlePublish() {
+    if (isApiConfigured && schedule.id) {
+      try {
+        await api.publishSchedule(schedule.id);
+        setSchedule(s => ({ ...s, status: 'published' }));
+        return;
+      } catch {
+        addToast('Failed to publish schedule', 'error');
+        return;
+      }
+    }
+    setSchedule(s => ({ ...s, status: 'published' }));
+  }
+
+  async function handlePublishAndExport() {
+    await handlePublish();
+    if (isApiConfigured && schedule.id) {
+      const token = getToken();
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/schedules/${schedule.id}/export/clearview`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `clearview-${weekStr}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } else {
+      exportClearviewCsv(shifts, weekDays);
+    }
+  }
 
   const isDragActive = activeId !== null;
   const gridCols = '80px repeat(21, 1fr)';
@@ -825,10 +1002,41 @@ export default function Schedule() {
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="p-8">
         {/* Header */}
+        {schedule.ml_metadata?.flags && schedule.ml_metadata.flags.length > 0 && (
+          <div
+            className="mb-4 rounded-lg px-4 py-3 text-sm"
+            style={{ backgroundColor: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.35)', color: '#FCA5A5' }}
+          >
+            <div className="font-semibold mb-1">Scheduling alerts</div>
+            <ul className="list-disc list-inside space-y-0.5" style={{ color: '#FECACA' }}>
+              {schedule.ml_metadata.flags.slice(0, 8).map((f: ScheduleFlag, i: number) => (
+                <li key={i}>
+                  {f.message ?? f.type}
+                  {f.date ? ` (${f.date}${f.hour != null ? ` @ ${f.hour}:00` : ''})` : ''}
+                </li>
+              ))}
+              {schedule.ml_metadata.flags.length > 8 && (
+                <li>…and {schedule.ml_metadata.flags.length -  8} more</li>
+              )}
+            </ul>
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-semibold" style={{ color: '#FAFAFA' }}>Schedule</h1>
             <p className="text-sm mt-0.5" style={{ color: '#A1A1AA' }}>Manage and publish your weekly shift schedule</p>
+            {schedule.ml_metadata?.workersNeeded?.byDay?.length ? (
+              <p className="text-xs mt-1" style={{ color: '#71717A' }}>
+                Demand from sales
+                {typeof schedule.ml_metadata.labourCostPct === 'number'
+                  ? ` · ${Math.round(schedule.ml_metadata.labourCostPct * 100)}% labour target`
+                  : ''}
+                {schedule.ml_metadata.salesReferenceWeekStart
+                  ? ` · ref week ${schedule.ml_metadata.salesReferenceWeekStart}`
+                  : ''}
+              </p>
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             {schedule.status === 'draft' && (
@@ -886,7 +1094,7 @@ export default function Schedule() {
                 {schedule.status === 'published' ? 'Published' : 'Draft'}
               </span>
               <span className="text-xs" style={{ color: '#71717A' }}>
-                Last generated: {format(parseISO(schedule.generated_at), 'MMM d, h:mm a')}
+                Last generated: {formatGeneratedAt(schedule.generated_at)}
               </span>
             </div>
           </div>
@@ -925,7 +1133,7 @@ export default function Schedule() {
             {weekDays.map((day, dayIdx) => {
               const dateStr = format(day, 'yyyy-MM-dd');
               return ROLES.map((role, roleIdx) => {
-                const cov = getRoleCoverage(dateStr, role, shifts);
+                const cov = getRoleCoverage(dateStr, role, shifts, preferences);
                 const isLast = roleIdx === 2;
                 const br = isLast && dayIdx < 6 ? '1px solid rgba(63,63,70,0.8)' : !isLast ? '1px solid #3F3F46' : undefined;
                 return (
@@ -967,7 +1175,7 @@ export default function Schedule() {
                 const dateStr = format(day, 'yyyy-MM-dd');
                 return ROLES.map((role, roleIdx) => (
                   <div key={`dc-${dayIdx}-${roleIdx}`} style={{ position: 'relative', height: '100%', pointerEvents: 'none' }}>
-                    {getRoleCoverage(dateStr, role, shifts) === 'none' && (
+                    {getRoleCoverage(dateStr, role, shifts, preferences) === 'none' && (
                       <div style={{
                         position: 'absolute', top: 0, bottom: 0, left: '50%', transform: 'translateX(-50%)',
                         width: 1, backgroundImage: 'repeating-linear-gradient(to bottom,rgba(248,113,113,0.45) 0,rgba(248,113,113,0.45) 4px,transparent 4px,transparent 8px)',
@@ -1034,6 +1242,8 @@ export default function Schedule() {
         <ContextMenuPopover
           state={contextMenu}
           shifts={shifts}
+          employees={employees}
+          scheduleId={schedule.id || 'local'}
           onClose={() => setContextMenu(null)}
           onCreateShift={handleCreateShift}
           onUpdateShift={handleUpdateShift}

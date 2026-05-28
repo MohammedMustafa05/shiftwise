@@ -12,16 +12,23 @@
     "dev:web": "npm run dev -w @shiftwise/web",
     "dev:api": "npm run dev -w @shiftwise/api",
     "dev:mobile": "npm run dev -w @shiftwise/mobile",
+    "dev:mobile:ios": "npm run ios -w @shiftwise/mobile",
+    "dev:mobile:android": "npm run android -w @shiftwise/mobile",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test:api": "npm run test -w @shiftwise/api",
+    "test:ml": "cd apps/ml-engine && python -m pytest",
     "db:migrate": "npm run db:migrate -w @shiftwise/api",
-    "db:seed": "npm run db:seed -w @shiftwise/api"
+    "db:seed": "npm run db:seed -w @shiftwise/api",
+    "db:import-sales": "npm run db:import-sales -w @shiftwise/api"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "expo": "~56.0.5",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
     "react-native-web": "^0.21.2"
   },
   "overrides": {

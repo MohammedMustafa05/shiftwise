@@ -3,15 +3,17 @@ import { StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../constants/colors";
+import { getToken } from "../lib/api";
 
 export default function SplashScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      router.replace("/login");
-    }, 2000);
+    const timer = setTimeout(async () => {
+      const token = await getToken();
+      router.replace(token ? "/(tabs)/home" : "/login");
+    }, 1500);
 
     return () => clearTimeout(timer);
   }, [router]);

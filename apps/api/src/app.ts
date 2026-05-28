@@ -6,6 +6,10 @@ import { workplaceRouter } from "./routes/workplace.js";
 import { employeesRouter } from "./routes/employees.js";
 import { schedulesRouter } from "./routes/schedules.js";
 import { adminRouter } from "./routes/admin.js";
+import { approvalsRouter } from "./routes/approvals.js";
+import { dashboardRouter } from "./routes/dashboard.js";
+import { transfersRouter } from "./routes/transfers.js";
+import { openShiftsRouter } from "./routes/openShifts.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
 export function createApp() {
@@ -40,6 +44,10 @@ export function createApp() {
   app.use("/api/employees", employeesRouter);
   app.use("/api/schedules", schedulesRouter);
   app.use("/api/admin", adminRouter);
+  app.use("/api/approvals", approvalsRouter);
+  app.use("/api/dashboard", dashboardRouter);
+  app.use("/api/transfers", transfersRouter);
+  app.use("/api/open-shifts", openShiftsRouter);
 
   app.use(errorHandler);
   return app;

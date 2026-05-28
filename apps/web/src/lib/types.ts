@@ -10,6 +10,8 @@ export type PeriodKey = 'peak' | 'off_peak';
 
 export interface Employee {
   id: string;
+  /** API user id (for shift assignment) */
+  userId?: string;
   created_at: string;
   name: string;
   preferred_name?: string;
@@ -89,12 +91,44 @@ export interface SalesData {
   week_start_date: string;
 }
 
+export interface ScheduleFlag {
+  type: string;
+  date?: string;
+  hour?: number;
+  message?: string;
+}
+
+export interface WorkersNeededHour {
+  date: string;
+  hour: number;
+  sales: number;
+  workers: number;
+}
+
+export interface WorkersNeededDay {
+  date: string;
+  sales: number;
+  workers: number;
+}
+
+export interface ScheduleMlMetadata {
+  workersNeeded?: { byHour: WorkersNeededHour[]; byDay: WorkersNeededDay[] };
+  flags?: ScheduleFlag[];
+  engineVersion?: string;
+  labourCostPct?: number;
+  avgHourlyWage?: number;
+  salesReferenceWeekStart?: string;
+  salesReferenceWeekEnd?: string;
+  roleRequirementsConfigured?: boolean;
+}
+
 export interface Schedule {
   id: string;
   week_start_date: string;
   status: ScheduleStatus;
   generated_at: string;
   last_modified: string;
+  ml_metadata?: ScheduleMlMetadata;
 }
 
 export interface Shift {

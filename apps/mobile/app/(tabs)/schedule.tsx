@@ -8,16 +8,15 @@ import {
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../../constants/colors";
-import { currentUser } from "../../constants/dummyData";
-import { demoIncomingRequest } from "../../constants/transferData";
+import { api, getStoredUser } from "../../lib/api";
 import {
-  getPendingIncoming,
-  seedDemoIncomingRequest,
-  subscribeTransfers,
-} from "../../lib/transferStore";
+  formatDateYmd,
+  formatShiftTimeRange,
+  getMondayForOffset,
+} from "../../lib/time";
 
 type Role = "Cook" | "Packline" | "Cashier";
 
@@ -35,8 +34,6 @@ const ROLE = {
   Cashier: { color: "#10B981", label: "Cashier" },
 } as const;
 
-/** Monday of the anchor week (May 26, 2025). */
-const BASE_MONDAY = new Date(2025, 4, 26);
 const DAY_ABBR = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -50,7 +47,7 @@ function addDays(date: Date, days: number) {
 }
 
 function getMonday(weekOffset: number) {
-  return addDays(BASE_MONDAY, weekOffset * 7);
+  return getMondayForOffset(weekOffset);
 }
 
 function formatWeekLabel(weekOffset: number) {
@@ -72,97 +69,78 @@ function getDaysForWeek(weekOffset: number) {
   });
 }
 
-const SHIFTS_BY_WEEK: Record<number, EmployeeShift[]> = {
-  0: [
-    { id: "1", name: "Aisha", role: "Cashier", dayIndex: 0, time: "10 AM – 2 PM" },
-    { id: "2", name: "Nina", role: "Cashier", dayIndex: 0, time: "11 AM – 3 PM" },
-    { id: "3", name: "Carlos", role: "Cook", dayIndex: 0, time: "9 AM – 1 PM" },
-    { id: "4", name: "Sarah", role: "Cook", dayIndex: 0, time: "10 AM – 4 PM" },
-    { id: "5", name: "Marcus", role: "Cook", dayIndex: 0, time: "12 PM – 6 PM" },
-    { id: "6", name: "Priya", role: "Packline", dayIndex: 0, time: "11 AM – 3 PM" },
-    { id: "7", name: "James", role: "Packline", dayIndex: 1, time: "2 PM – 8 PM" },
-    { id: "8", name: "Nina", role: "Cashier", dayIndex: 1, time: "11 AM – 5 PM" },
-    { id: "9", name: "Tom", role: "Cook", dayIndex: 1, time: "10 AM – 4 PM" },
-    { id: "10", name: "Elena", role: "Cashier", dayIndex: 1, time: "9 AM – 1 PM" },
-    { id: "11", name: "Aisha", role: "Cashier", dayIndex: 2, time: "10 AM – 2 PM" },
-    { id: "12", name: "Nina", role: "Cashier", dayIndex: 2, time: "11 AM – 3 PM" },
-    { id: "13", name: "Carlos", role: "Cook", dayIndex: 2, time: "9 AM – 1 PM" },
-    { id: "14", name: "Tom", role: "Cook", dayIndex: 2, time: "10 AM – 4 PM" },
-    { id: "15", name: "Dan", role: "Packline", dayIndex: 2, time: "1 PM – 7 PM" },
-    { id: "16", name: "Maya", role: "Packline", dayIndex: 2, time: "8 AM – 12 PM" },
-    { id: "17", name: "Jordan", role: "Cashier", dayIndex: 2, time: "2 PM – 6 PM" },
-    { id: "18", name: "Priya", role: "Packline", dayIndex: 3, time: "10 AM – 2 PM" },
-    { id: "19", name: "Marcus", role: "Cook", dayIndex: 3, time: "11 AM – 5 PM" },
-    { id: "20", name: "Leo", role: "Cashier", dayIndex: 3, time: "12 PM – 4 PM" },
-    { id: "21", name: "Aisha", role: "Cashier", dayIndex: 3, time: "3 PM – 7 PM" },
-    { id: "22", name: "Sarah", role: "Cook", dayIndex: 4, time: "9 AM – 3 PM" },
-    { id: "23", name: "Marcus", role: "Cook", dayIndex: 4, time: "2 PM – 8 PM" },
-    { id: "24", name: "Aisha", role: "Cashier", dayIndex: 4, time: "11 AM – 5 PM" },
-    { id: "25", name: "Nina", role: "Cashier", dayIndex: 4, time: "10 AM – 2 PM" },
-    { id: "26", name: "Omar", role: "Packline", dayIndex: 4, time: "1 PM – 5 PM" },
-    { id: "27", name: "Priya", role: "Packline", dayIndex: 5, time: "10 AM – 2 PM" },
-    { id: "28", name: "Nina", role: "Cashier", dayIndex: 5, time: "12 PM – 6 PM" },
-    { id: "29", name: "Carlos", role: "Cook", dayIndex: 5, time: "9 AM – 1 PM" },
-    { id: "30", name: "Elena", role: "Cashier", dayIndex: 5, time: "11 AM – 3 PM" },
-    { id: "31", name: "Tom", role: "Cook", dayIndex: 6, time: "10 AM – 4 PM" },
-    { id: "32", name: "James", role: "Packline", dayIndex: 6, time: "12 PM – 6 PM" },
-    { id: "33", name: "Jordan", role: "Cashier", dayIndex: 6, time: "11 AM – 3 PM" },
-    { id: "34", name: "Maya", role: "Packline", dayIndex: 6, time: "2 PM – 8 PM" },
-  ],
-  1: [
-    { id: "w1-1", name: "Leo", role: "Cashier", dayIndex: 0, time: "9 AM – 3 PM" },
-    { id: "w1-2", name: "Omar", role: "Packline", dayIndex: 0, time: "11 AM – 5 PM" },
-    { id: "w1-3", name: "Sarah", role: "Cook", dayIndex: 1, time: "10 AM – 4 PM" },
-    { id: "w1-4", name: "Dan", role: "Packline", dayIndex: 1, time: "1 PM – 7 PM" },
-    { id: "w1-5", name: "Aisha", role: "Cashier", dayIndex: 2, time: "10 AM – 2 PM" },
-    { id: "w1-6", name: "Marcus", role: "Cook", dayIndex: 2, time: "12 PM – 6 PM" },
-    { id: "w1-7", name: "Nina", role: "Cashier", dayIndex: 3, time: "11 AM – 3 PM" },
-    { id: "w1-8", name: "Tom", role: "Cook", dayIndex: 4, time: "9 AM – 1 PM" },
-    { id: "w1-9", name: "Priya", role: "Packline", dayIndex: 4, time: "2 PM – 8 PM" },
-    { id: "w1-10", name: "James", role: "Packline", dayIndex: 5, time: "10 AM – 2 PM" },
-    { id: "w1-11", name: "Elena", role: "Cashier", dayIndex: 6, time: "12 PM – 4 PM" },
-  ],
-  [-1]: [
-    { id: "wm1-1", name: "Jordan", role: "Cashier", dayIndex: 0, time: "11 AM – 3 PM" },
-    { id: "wm1-2", name: "Carlos", role: "Cook", dayIndex: 1, time: "9 AM – 1 PM" },
-    { id: "wm1-3", name: "Maya", role: "Packline", dayIndex: 2, time: "8 AM – 12 PM" },
-    { id: "wm1-4", name: "Nina", role: "Cashier", dayIndex: 2, time: "1 PM – 5 PM" },
-    { id: "wm1-5", name: "Tom", role: "Cook", dayIndex: 3, time: "10 AM – 4 PM" },
-    { id: "wm1-6", name: "Aisha", role: "Cashier", dayIndex: 4, time: "10 AM – 2 PM" },
-    { id: "wm1-7", name: "Marcus", role: "Cook", dayIndex: 5, time: "11 AM – 5 PM" },
-    { id: "wm1-8", name: "Dan", role: "Packline", dayIndex: 6, time: "2 PM – 6 PM" },
-  ],
-};
 
-function shiftsForWeek(weekOffset: number) {
-  return SHIFTS_BY_WEEK[weekOffset] ?? SHIFTS_BY_WEEK[0];
+function mapApiRole(role: string): Role {
+  const r = role.toUpperCase();
+  if (r.includes("COOK")) return "Cook";
+  if (r.includes("PACK")) return "Packline";
+  return "Cashier";
 }
 
 export default function ScheduleScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [weekOffset, setWeekOffset] = useState(0);
-  const [selectedDay, setSelectedDay] = useState(2);
+  const [selectedDay, setSelectedDay] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  const [weekShifts, setWeekShifts] = useState<EmployeeShift[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const refreshPending = useCallback(() => {
-    setPendingCount(getPendingIncoming(currentUser.id).length);
+    void api.getTransferRequests().then((rows) => {
+      setPendingCount(rows.length);
+    }).catch(() => setPendingCount(0));
   }, []);
 
+  const loadWeek = useCallback(async () => {
+    setLoading(true);
+    try {
+      const user = await getStoredUser();
+      if (!user?.workplaceId) {
+        setWeekShifts([]);
+        return;
+      }
+      const monday = getMondayForOffset(weekOffset);
+      const weekStart = formatDateYmd(monday);
+      const rows = await api.getTeamSchedule(user.workplaceId, weekStart);
+      setWeekShifts(
+        rows.map((r) => ({
+          id: r.id,
+          name: r.employeeName,
+          role: mapApiRole(r.role),
+          dayIndex: r.dayIndex,
+          time: formatShiftTimeRange(r.startTime, r.endTime),
+        })),
+      );
+    } catch {
+      setWeekShifts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [weekOffset]);
+
   useEffect(() => {
-    seedDemoIncomingRequest(demoIncomingRequest);
+    void loadWeek();
+  }, [loadWeek]);
+
+  useEffect(() => {
     refreshPending();
-    return subscribeTransfers(refreshPending);
   }, [refreshPending]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshPending();
+      void loadWeek();
+    }, [refreshPending, loadWeek]),
+  );
 
   const days = useMemo(() => getDaysForWeek(weekOffset), [weekOffset]);
   const weekLabel = useMemo(() => formatWeekLabel(weekOffset), [weekOffset]);
 
   const dayShifts = useMemo(() => {
-    const weekShifts = shiftsForWeek(weekOffset);
     return weekShifts.filter((s) => s.dayIndex === selectedDay);
-  }, [weekOffset, selectedDay]);
+  }, [weekShifts, selectedDay]);
 
   const goPrevWeek = () => {
     setWeekOffset((w) => w - 1);
@@ -177,6 +155,16 @@ export default function ScheduleScreen() {
   const openTransfer = () => {
     setMenuOpen(false);
     router.push("/transfer-shift");
+  };
+
+  const openOffer = () => {
+    setMenuOpen(false);
+    router.push("/offer-shift");
+  };
+
+  const openOpenShifts = () => {
+    setMenuOpen(false);
+    router.push("/open-shifts");
   };
 
   const openRequests = () => {
@@ -213,12 +201,27 @@ export default function ScheduleScreen() {
           >
             <Pressable style={styles.menuItem} onPress={openTransfer}>
               <Feather name="repeat" size={18} color={Colors.primary} />
-              <Text style={styles.menuItemText}>Transfer My Shift</Text>
+              <View style={styles.menuItemBody}>
+                <Text style={styles.menuItemText}>Transfer My Shift</Text>
+                <Text style={styles.menuItemSubtext}>Switch with coworkers</Text>
+              </View>
+            </Pressable>
+            <View style={styles.menuDivider} />
+            <Pressable style={styles.menuItem} onPress={openOffer}>
+              <Feather name="upload" size={18} color={Colors.primary} />
+              <Text style={styles.menuItemText}>Offer Shift to Team</Text>
+            </Pressable>
+            <View style={styles.menuDivider} />
+            <Pressable style={styles.menuItem} onPress={openOpenShifts}>
+              <Feather name="inbox" size={18} color={Colors.primary} />
+              <Text style={styles.menuItemText}>Open Shifts</Text>
             </Pressable>
             <View style={styles.menuDivider} />
             <Pressable style={styles.menuItem} onPress={openRequests}>
               <Feather name="inbox" size={18} color={Colors.primary} />
-              <Text style={styles.menuItemText}>Shift Requests</Text>
+              <Text style={styles.menuItemText}>
+                Shift Requests{pendingCount > 0 ? ` (${pendingCount})` : ""}
+              </Text>
               {pendingCount > 0 ? (
                 <View style={styles.menuItemBadge}>
                   <Text style={styles.menuItemBadgeText}>{pendingCount}</Text>
@@ -241,12 +244,7 @@ export default function ScheduleScreen() {
         </Pressable>
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.dayScroll}
-        contentContainerStyle={styles.dayRow}
-      >
+      <View style={styles.dayRow}>
         {days.map((day, i) => {
           const active = i === selectedDay;
           return (
@@ -264,7 +262,7 @@ export default function ScheduleScreen() {
             </Pressable>
           );
         })}
-      </ScrollView>
+      </View>
 
       <View style={styles.legend}>
         {(Object.keys(ROLE) as Role[]).map((role) => (
@@ -389,6 +387,14 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.textPrimary,
   },
+  menuItemBody: {
+    flex: 1,
+  },
+  menuItemSubtext: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
   menuDivider: {
     height: 1,
     backgroundColor: Colors.border,
@@ -429,18 +435,15 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     textAlign: "center",
   },
-  dayScroll: {
-    flexGrow: 0,
+  dayRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     marginBottom: 8,
   },
-  dayRow: {
-    gap: 10,
-    paddingRight: 8,
-  },
   dayPill: {
-    width: 52,
+    width: 42,
     height: 52,
-    borderRadius: 26,
+    borderRadius: 21,
     backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.border,

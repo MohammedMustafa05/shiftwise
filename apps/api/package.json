@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "tsx src/scripts/migrate.ts",
-    "db:seed": "tsx src/scripts/seed.ts"
+    "db:seed": "tsx src/scripts/seed.ts",
+    "db:import-sales": "tsx src/scripts/importDropChartSales.ts"
   },
   "dependencies": {
     "@shiftwise/shared": "*",

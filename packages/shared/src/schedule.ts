@@ -70,6 +70,7 @@ export const UpdateShiftRequest = z.object({
   role: z.string().optional(),
   location: z.string().optional(),
   employeeId: z.string().uuid().optional(),
+  isLocked: z.boolean().optional(),
 });
 
 export const PublishScheduleResponse = z.object({

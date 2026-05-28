@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ClipboardCheck, Check, X, Calendar, Clock, CheckCircle2, XCircle } from 'lucide-react';
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
 import { mockAvailabilityRequests, mockTimeOffRequests } from '../lib/mockData';
 import type { AvailabilityRequest, TimeOffRequest, ApprovalStatus, DayKey } from '../lib/types';
+import { api, isApiConfigured } from '../lib/api';
+import { useEmployees } from '../hooks/useEmployerApi';
 import { DAY_KEYS, DAY_LABELS, getRoleBadgeClass, getInitials, getAvatarColor } from '../lib/utils';
 
 const GRID_HOURS = [
@@ -15,6 +17,20 @@ function fmtGridHour(h: string): string {
   const hr = parseInt(h.split(':')[0]);
   if (hr === 12) return '12p';
   return hr > 12 ? `${hr - 12}p` : `${hr}a`;
+}
+
+function safeFormatDate(iso: string, pattern: string): string {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return iso || '—';
+  const d = parseISO(iso.slice(0, 10));
+  if (Number.isNaN(d.getTime())) return iso;
+  return format(d, pattern);
+}
+
+function safeFormatDistance(iso: string): string {
+  if (!iso) return 'recently';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'recently';
+  return formatDistanceToNow(d, { addSuffix: true });
 }
 
 function AvailabilityGrid({ grid }: { grid: AvailabilityRequest['availability_grid'] }) {
@@ -38,7 +54,7 @@ function AvailabilityGrid({ grid }: { grid: AvailabilityRequest['availability_gr
                 {fmtGridHour(hour)}
               </td>
               {DAY_KEYS.map(day => {
-                const avail = grid[day as DayKey]?.includes(hour) ?? false;
+                const avail = grid?.[day as DayKey]?.includes(hour) ?? false;
                 return (
                   <td key={`${day}-${hour}`}>
                     <div
@@ -114,19 +130,21 @@ function ActionButtons({ onApprove, onReject }: { onApprove: () => void; onRejec
 }
 
 function EmployeeRow({ request }: { request: AvailabilityRequest | TimeOffRequest }) {
-  const emp = request.employee!;
+  const emp = request.employee;
+  const name = emp?.name ?? 'Employee';
+  const roles = emp?.role ?? [];
   return (
     <div className="flex items-center gap-3">
       <div
         className="flex items-center justify-center w-9 h-9 rounded-full text-xs font-semibold shrink-0"
-        style={{ backgroundColor: getAvatarColor(emp.name), color: '#FFFFFF' }}
+        style={{ backgroundColor: getAvatarColor(name), color: '#FFFFFF' }}
       >
-        {getInitials(emp.name)}
+        {getInitials(name)}
       </div>
       <div>
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium" style={{ color: '#FAFAFA' }}>{emp.name}</span>
-          {emp.role.map(r => (
+          <span className="text-sm font-medium" style={{ color: '#FAFAFA' }}>{name}</span>
+          {roles.map(r => (
             <span key={r} className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getRoleBadgeClass(r)}`}>
               {r}
             </span>
@@ -135,7 +153,7 @@ function EmployeeRow({ request }: { request: AvailabilityRequest | TimeOffReques
         <div className="flex items-center gap-1 mt-0.5">
           <Clock size={10} style={{ color: '#71717A' }} />
           <span className="text-xs" style={{ color: '#71717A' }}>
-            {formatDistanceToNow(new Date(request.submitted_at), { addSuffix: true })}
+            {safeFormatDistance(request.submitted_at)}
           </span>
         </div>
       </div>
@@ -146,16 +164,51 @@ function EmployeeRow({ request }: { request: AvailabilityRequest | TimeOffReques
 type TabType = 'availability' | 'timeoff';
 
 export default function Approvals() {
+  const { employees } = useEmployees();
+  const [availRequests, setAvailRequests] = useState<AvailabilityRequest[]>(isApiConfigured ? [] : mockAvailabilityRequests);
+  const [timeOffRequests, setTimeOffRequests] = useState<TimeOffRequest[]>(isApiConfigured ? [] : mockTimeOffRequests);
   const [activeTab, setActiveTab] = useState<TabType>('availability');
-  const [availStatuses, setAvailStatuses] = useState<Record<string, ApprovalStatus>>(
-    Object.fromEntries(mockAvailabilityRequests.map(r => [r.id, r.status]))
-  );
-  const [timeOffStatuses, setTimeOffStatuses] = useState<Record<string, ApprovalStatus>>(
-    Object.fromEntries(mockTimeOffRequests.map(r => [r.id, r.status]))
-  );
+  const [availStatuses, setAvailStatuses] = useState<Record<string, ApprovalStatus>>({});
+  const [timeOffStatuses, setTimeOffStatuses] = useState<Record<string, ApprovalStatus>>({});
 
-  const pendingAvail = mockAvailabilityRequests.filter(r => availStatuses[r.id] === 'pending').length;
-  const pendingTimeOff = mockTimeOffRequests.filter(r => timeOffStatuses[r.id] === 'pending').length;
+  useEffect(() => {
+    if (!isApiConfigured) {
+      setAvailStatuses(Object.fromEntries(mockAvailabilityRequests.map(r => [r.id, r.status])));
+      setTimeOffStatuses(Object.fromEntries(mockTimeOffRequests.map(r => [r.id, r.status])));
+      return;
+    }
+    void (async () => {
+      try {
+        const [avail, toff] = await Promise.all([
+          api.getAvailabilityRequests(employees),
+          api.getTimeOffRequests(employees),
+        ]);
+        setAvailRequests(avail);
+        setTimeOffRequests(toff);
+        setAvailStatuses(Object.fromEntries(avail.map(r => [r.id, r.status])));
+        setTimeOffStatuses(Object.fromEntries(toff.map(r => [r.id, r.status])));
+      } catch {
+        /* keep mocks */
+      }
+    })();
+  }, [employees]);
+
+  async function setAvailStatus(id: string, status: ApprovalStatus) {
+    setAvailStatuses(s => ({ ...s, [id]: status }));
+    if (isApiConfigured && status !== 'pending') {
+      await api.updateAvailabilityStatus(id, status as 'approved' | 'rejected');
+    }
+  }
+
+  async function setTimeOffStatus(id: string, status: ApprovalStatus) {
+    setTimeOffStatuses(s => ({ ...s, [id]: status }));
+    if (isApiConfigured && status !== 'pending') {
+      await api.updateTimeOffStatus(id, status as 'approved' | 'rejected');
+    }
+  }
+
+  const pendingAvail = availRequests.filter(r => availStatuses[r.id] === 'pending').length;
+  const pendingTimeOff = timeOffRequests.filter(r => timeOffStatuses[r.id] === 'pending').length;
   const totalPending = pendingAvail + pendingTimeOff;
 
   const tabs: { id: TabType; label: string; count: number }[] = [
@@ -220,7 +273,7 @@ export default function Approvals() {
       {/* Availability Requests Tab */}
       {activeTab === 'availability' && (
         <div className="space-y-4">
-          {mockAvailabilityRequests.length === 0 ? (
+          {availRequests.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 rounded-xl"
               style={{ backgroundColor: '#27272A', border: '1px solid #3F3F46' }}>
               <ClipboardCheck size={36} style={{ color: '#3F3F46' }} />
@@ -228,8 +281,8 @@ export default function Approvals() {
               <div className="text-xs mt-1" style={{ color: '#71717A' }}>Employees haven't submitted any yet</div>
             </div>
           ) : (
-            mockAvailabilityRequests.map(req => {
-              const status = availStatuses[req.id];
+            availRequests.map(req => {
+              const status = availStatuses[req.id] ?? req.status ?? 'pending';
               return (
                 <div
                   key={req.id}
@@ -242,12 +295,12 @@ export default function Approvals() {
                       <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs"
                         style={{ backgroundColor: '#18181B', border: '1px solid #3F3F46', color: '#71717A' }}>
                         <Calendar size={10} />
-                        Week of {format(parseISO(req.week_start_date), 'MMM d')}
+                        Week of {safeFormatDate(req.week_start_date, 'MMM d')}
                       </div>
                       {status === 'pending' ? (
                         <ActionButtons
-                          onApprove={() => setAvailStatuses(s => ({ ...s, [req.id]: 'approved' }))}
-                          onReject={() => setAvailStatuses(s => ({ ...s, [req.id]: 'rejected' }))}
+                          onApprove={() => void setAvailStatus(req.id, 'approved')}
+                          onReject={() => void setAvailStatus(req.id, 'rejected')}
                         />
                       ) : (
                         <div className="flex items-center gap-2">
@@ -276,7 +329,7 @@ export default function Approvals() {
       {/* Time Off Tab */}
       {activeTab === 'timeoff' && (
         <div className="space-y-4">
-          {mockTimeOffRequests.length === 0 ? (
+          {timeOffRequests.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 rounded-xl"
               style={{ backgroundColor: '#27272A', border: '1px solid #3F3F46' }}>
               <ClipboardCheck size={36} style={{ color: '#3F3F46' }} />
@@ -284,10 +337,8 @@ export default function Approvals() {
               <div className="text-xs mt-1" style={{ color: '#71717A' }}>All clear for this period</div>
             </div>
           ) : (
-            mockTimeOffRequests.map(req => {
-              const status = timeOffStatuses[req.id];
-              const start = parseISO(req.start_date);
-              const end = parseISO(req.end_date);
+            timeOffRequests.map(req => {
+              const status = timeOffStatuses[req.id] ?? req.status ?? 'pending';
               const sameDay = req.start_date === req.end_date;
               return (
                 <div
@@ -302,13 +353,13 @@ export default function Approvals() {
                         style={{ backgroundColor: '#18181B', border: '1px solid #3F3F46', color: '#71717A' }}>
                         <Calendar size={10} />
                         {sameDay
-                          ? format(start, 'MMM d, yyyy')
-                          : `${format(start, 'MMM d')} – ${format(end, 'MMM d, yyyy')}`}
+                          ? safeFormatDate(req.start_date, 'MMM d, yyyy')
+                          : `${safeFormatDate(req.start_date, 'MMM d')} – ${safeFormatDate(req.end_date, 'MMM d, yyyy')}`}
                       </div>
                       {status === 'pending' ? (
                         <ActionButtons
-                          onApprove={() => setTimeOffStatuses(s => ({ ...s, [req.id]: 'approved' }))}
-                          onReject={() => setTimeOffStatuses(s => ({ ...s, [req.id]: 'rejected' }))}
+                          onApprove={() => void setTimeOffStatus(req.id, 'approved')}
+                          onReject={() => void setTimeOffStatus(req.id, 'rejected')}
                         />
                       ) : (
                         <div className="flex items-center gap-2">

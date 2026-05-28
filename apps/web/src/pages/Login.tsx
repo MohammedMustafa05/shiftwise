@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChefHat, AlertCircle, Mail, Lock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { isApiConfigured } from '../lib/api';
 
 export default function Login() {
   const { signIn } = useAuth();
@@ -164,7 +165,9 @@ export default function Login() {
         </div>
 
         <p className="text-center text-xs mt-6" style={{ color: '#52525B' }}>
-          Demo: any email + password (min 4 chars)
+          {isApiConfigured
+            ? 'Demo: employer@demo.com / password123'
+            : 'Demo: any email + password (min 4 chars)'}
         </p>
       </div>
     </div>

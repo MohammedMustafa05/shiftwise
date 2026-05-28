@@ -12,6 +12,8 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="transfer-shift" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="shift-requests" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="offer-shift" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="open-shifts" options={{ animation: "slide_from_right" }} />
       </Stack>
     </SafeAreaProvider>
   );

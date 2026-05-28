@@ -1,0 +1,39 @@
+{
+  "workplace_id": "00000000-0000-0000-0000-000000000001",
+  "week_start": "2026-05-25",
+  "sales": [
+    { "date": "2026-05-25", "hour": 12, "sales_amount": 5000 }
+  ],
+  "preferences": {
+    "labourCostPct": 0.2,
+    "avgHourlyWage": 18.5,
+    "shiftLengthHours": 8,
+    "constraints": {}
+  },
+  "operating_hours": {
+    "default": { "open": "10:00", "close": "22:00" }
+  },
+  "role_requirements": {
+    "monday": [
+      { "from": "10:00", "to": "22:00", "cashiers": 3, "cooks": 3, "packliners": 2 }
+    ]
+  },
+  "employees": [
+    {
+      "user_id": "00000000-0000-0000-0000-000000000013",
+      "role": "COOK",
+      "roles": ["Cook"],
+      "max_hours": 8
+    }
+  ],
+  "availability": [
+    {
+      "user_id": "00000000-0000-0000-0000-000000000013",
+      "day_of_week": 1,
+      "start_time": "10:00",
+      "end_time": "14:00"
+    }
+  ],
+  "approved_time_off": [],
+  "availability_submissions": []
+}

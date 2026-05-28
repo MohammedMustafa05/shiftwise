@@ -10,6 +10,8 @@ const reactRoot = path.join(repoRoot, 'node_modules/react')
 const reactDomRoot = path.join(repoRoot, 'node_modules/react-dom')
 
 export default defineConfig({
+  // Load VITE_* from monorepo root `.env` (not only apps/web).
+  envDir: repoRoot,
   plugins: [react(), tailwindcss()],
   resolve: {
     dedupe: ['react', 'react-dom'],

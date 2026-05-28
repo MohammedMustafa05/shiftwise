@@ -5,6 +5,7 @@ import {
   Settings, LogOut, ChefHat, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { usePendingApprovals } from '../hooks/usePendingApprovals';
 import { getInitials, getAvatarColor } from '../lib/utils';
 
 interface NavItem {
@@ -14,13 +15,16 @@ interface NavItem {
   badge?: number;
 }
 
-const navItems: NavItem[] = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/schedule',  icon: CalendarDays,    label: 'Schedule'  },
-  { to: '/employees', icon: Users,           label: 'Employees' },
-  { to: '/approvals', icon: ClipboardCheck,  label: 'Approvals', badge: 4 },
-  { to: '/preferences', icon: Settings,      label: 'Preferences' },
-];
+function useNavItems(): NavItem[] {
+  const { count } = usePendingApprovals();
+  return [
+    { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/schedule',  icon: CalendarDays,    label: 'Schedule'  },
+    { to: '/employees', icon: Users,           label: 'Employees' },
+    { to: '/approvals', icon: ClipboardCheck,  label: 'Approvals', badge: count > 0 ? count : undefined },
+    { to: '/preferences', icon: Settings,      label: 'Preferences' },
+  ];
+}
 
 interface SidebarProps {
   collapsed: boolean;
@@ -78,9 +82,10 @@ function NavItemRow({ to, icon: Icon, label, badge, collapsed }: NavItem & { col
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const navItems = useNavItems();
 
-  const displayName = (user?.user_metadata?.name as string) ?? user?.email?.split('@')[0] ?? 'Manager';
-  const email = user?.email ?? 'manager@shiftagent.com';
+  const displayName = user?.name ?? (user?.user_metadata?.name as string) ?? user?.email?.split('@')[0] ?? 'Manager';
+  const email = user?.email ?? '';
   const avatarColor = getAvatarColor(displayName);
   const initials = getInitials(displayName);
 

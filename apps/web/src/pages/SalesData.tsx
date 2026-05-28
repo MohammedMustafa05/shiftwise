@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   BarChart2, ChevronLeft, ChevronRight, Save, RefreshCw,
   TrendingUp, DollarSign, CheckCircle2,
@@ -9,6 +9,9 @@ import {
   ResponsiveContainer, Cell,
 } from 'recharts';
 import { mockSalesData } from '../lib/mockData';
+import { api, isApiConfigured } from '../lib/api';
+import { useWorkplaceId } from '../hooks/useEmployerApi';
+import { format as fmtDate } from 'date-fns';
 import type { SalesData } from '../lib/types';
 
 const WEEK_START = '2024-05-20';
@@ -47,11 +50,22 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
 }
 
 export default function Sales() {
+  const workplaceId = useWorkplaceId();
   const [weekStart, setWeekStart] = useState(new Date(WEEK_START));
   const [activeDayIdx, setActiveDayIdx] = useState(0);
-  const [salesData, setSalesData] = useState<SalesData[]>(mockSalesData);
+  const [salesData, setSalesData] = useState<SalesData[]>(isApiConfigured ? [] : mockSalesData);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState<string | null>(null);
+  const weekStr = fmtDate(weekStart, 'yyyy-MM-dd');
+
+  useEffect(() => {
+    if (!isApiConfigured || !workplaceId) return;
+    void api.getSales(workplaceId, weekStr).then(data => {
+      if (data.length) setSalesData(data);
+    }).catch(() => undefined);
+  }, [workplaceId, weekStr]);
 
   const weekLabel = `${format(weekStart, 'MMM d')} – ${format(new Date(weekStart.getTime() + 6 * 86400000), 'MMM d, yyyy')}`;
 
@@ -80,17 +94,50 @@ export default function Sales() {
     ));
   }
 
-  function handleSave() {
+  async function handleCsvUpload(file: File) {
+    if (!workplaceId) return;
+    setUploading(true);
+    setUploadMsg(null);
+    try {
+      const result = await api.uploadSalesCsv(workplaceId, file);
+      setUploadMsg(
+        `Imported ${result.rowsAccepted} rows` +
+          (result.format ? ` (${result.format})` : '') +
+          (result.rowsRejected ? ` · ${result.rowsRejected} skipped` : '') +
+          (result.dateRange.from ? ` · ${result.dateRange.from} to ${result.dateRange.to}` : '')
+      );
+      const data = await api.getSales(workplaceId, weekStr);
+      if (data.length) setSalesData(data);
+    } catch {
+      setUploadMsg(
+        'CSV upload failed — use date/hour/sales_amount or the drop chart format (Date, Time, Sales ($))'
+      );
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleSave() {
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
+    try {
+      if (isApiConfigured && workplaceId) {
+        await api.saveSales(workplaceId, weekStr, salesData);
+      } else {
+        await new Promise(r => setTimeout(r, 800));
+      }
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
-    }, 800);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <div className="p-8">
+      {uploadMsg && (
+        <p className="text-sm mb-4" style={{ color: '#A1A1AA' }}>{uploadMsg}</p>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -99,7 +146,31 @@ export default function Sales() {
             Enter or review hourly sales — used to optimize rush-hour staffing
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {isApiConfigured && workplaceId && (
+            <label
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all"
+              style={{
+                backgroundColor: '#27272A',
+                color: '#FAFAFA',
+                border: '1px solid #3F3F46',
+                opacity: uploading ? 0.6 : 1,
+              }}
+            >
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                disabled={uploading}
+                onChange={e => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleCsvUpload(f);
+                  e.target.value = '';
+                }}
+              />
+              {uploading ? 'Uploading…' : 'Upload CSV'}
+            </label>
+          )}
           <button
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
             style={{ backgroundColor: '#3F3F46', color: '#FAFAFA' }}

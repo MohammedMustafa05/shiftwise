@@ -1,27 +1,33 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   TrendingUp, TrendingDown,
   Sparkles, ClipboardCheck, UserPlus, ArrowRight, CheckCircle2,
   CalendarDays, Edit3, Bell, Zap,
 } from 'lucide-react';
-import { format, addDays, parseISO } from 'date-fns';
+import { format, addDays, parseISO, startOfWeek } from 'date-fns';
 import { mockShifts, mockActivity, mockAvailabilityRequests, mockTimeOffRequests } from '../lib/mockData';
+import type { Shift, ActivityItem } from '../lib/types';
 import { getRoleBadgeClass } from '../lib/utils';
+import { api, isApiConfigured, loadScheduleWithEmployees } from '../lib/api';
+import { useEmployees, useWorkplaceId } from '../hooks/useEmployerApi';
 
-const WEEK_DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-const WEEK_DATES = Array.from({ length: 7 }, (_, i) => addDays(new Date('2024-05-20'), i));
+const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-function LaborCard() {
-  const scheduledHours = { current: 142, last: 138 };
-  const laborCost = { expected: 3200, actual: 3450 };
-  const delta = laborCost.actual - laborCost.expected;
+type LaborSummary = {
+  scheduledHours: number;
+  laborCost: number;
+  laborBudget: number;
+  laborCostPct: number;
+};
+
+function LaborCard({ summary }: { summary: LaborSummary }) {
+  const delta = summary.laborCost - summary.laborBudget;
   const isOver = delta > 0;
-  const laborPercent = 24.6;
   const targetPercent = 25;
-  const overBy = laborPercent - targetPercent;
+  const overBy = summary.laborCostPct - targetPercent;
   const barColor = overBy <= 0 ? '#34D399' : overBy <= 2 ? '#FBBF24' : '#F87171';
-  const barWidth = Math.min((laborPercent / targetPercent) * 100, 100);
+  const barWidth = Math.min((summary.laborCostPct / targetPercent) * 100, 100);
 
   return (
     <div
@@ -36,10 +42,7 @@ function LaborCard() {
         <div className="text-xs font-medium uppercase tracking-wider mb-1" style={{ color: '#71717A', letterSpacing: '0.06em' }}>
           Scheduled Hours
         </div>
-        <div className="text-3xl font-bold" style={{ color: '#FAFAFA' }}>{scheduledHours.current} hrs</div>
-        <div className="text-xs mt-0.5" style={{ color: '#71717A' }}>
-          vs {scheduledHours.last} hrs last week
-        </div>
+        <div className="text-3xl font-bold" style={{ color: '#FAFAFA' }}>{summary.scheduledHours} hrs</div>
       </div>
 
       <div style={{ width: 1, alignSelf: 'stretch', backgroundColor: '#3F3F46', flexShrink: 0 }} />
@@ -49,8 +52,7 @@ function LaborCard() {
           <div className="text-xs font-medium uppercase tracking-wider" style={{ color: '#71717A', letterSpacing: '0.06em' }}>
             Labor Cost
           </div>
-          <div className="text-sm" style={{ color: '#A1A1AA' }}>Expected: ${laborCost.expected.toLocaleString()}</div>
-          <div className="text-sm font-medium" style={{ color: '#FAFAFA' }}>Actual: ${laborCost.actual.toLocaleString()}</div>
+          <div className="text-sm font-medium" style={{ color: '#FAFAFA' }}>${summary.laborCost.toLocaleString()}</div>
           <span
             className="inline-flex items-center self-start px-2.5 py-0.5 rounded-full text-xs font-medium mt-0.5"
             style={{
@@ -58,7 +60,7 @@ function LaborCard() {
               color: isOver ? '#F87171' : '#34D399',
             }}
           >
-            {isOver ? `+$${delta} over` : `-$${Math.abs(delta)} under`}
+            Budget ${summary.laborBudget.toLocaleString()}
           </span>
         </div>
 
@@ -66,7 +68,7 @@ function LaborCard() {
           <div className="text-xs font-medium uppercase tracking-wider" style={{ color: '#71717A', letterSpacing: '0.06em' }}>
             Labor %
           </div>
-          <div className="text-2xl font-bold" style={{ color: '#FAFAFA' }}>{laborPercent}%</div>
+          <div className="text-2xl font-bold" style={{ color: '#FAFAFA' }}>{summary.laborCostPct}%</div>
           <div className="text-xs" style={{ color: '#71717A' }}>Target: {targetPercent}%</div>
           <div style={{ height: 4, backgroundColor: '#3F3F46', borderRadius: 9999, overflow: 'hidden', marginTop: 2 }}>
             <div style={{ width: `${barWidth}%`, height: '100%', backgroundColor: barColor, borderRadius: 9999 }} />
@@ -121,7 +123,7 @@ function StatCard({ title, value, icon: Icon, iconColor, iconBg, trend, trendVal
   );
 }
 
-function WeekSchedulePreview() {
+function WeekSchedulePreview({ shifts, weekDates }: { shifts: Shift[]; weekDates: Date[] }) {
   function getStatus(count: number) {
     if (count >= 4) return { color: '#34D399' };
     if (count >= 2) return { color: '#FBBF24' };
@@ -132,16 +134,16 @@ function WeekSchedulePreview() {
     const [h, m] = t.split(':').map(Number);
     const suffix = h >= 12 ? 'PM' : 'AM';
     const hour = h % 12 || 12;
-    return `${hour}:${String(m).padStart(2,'0')} ${suffix}`;
+    return `${hour}:${String(m).padStart(2, '0')} ${suffix}`;
   }
 
-  function getDisplayName(shift: typeof mockShifts[0]) {
+  function getDisplayName(shift: Shift) {
     return shift.employee?.preferred_name ?? shift.employee?.name?.split(' ')[0] ?? 'Unknown';
   }
 
-  const columns = WEEK_DATES.map((date, i) => {
+  const columns = weekDates.map((date, i) => {
     const dateStr = format(date, 'yyyy-MM-dd');
-    const dayShifts = mockShifts.filter(s => s.date === dateStr);
+    const dayShifts = shifts.filter(s => s.date === dateStr);
     return {
       label: WEEK_DAYS[i],
       date: format(date, 'M/d'),
@@ -152,7 +154,7 @@ function WeekSchedulePreview() {
 
   return (
     <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}>
-      {columns.map(({ label, date, shifts, status }) => (
+      {columns.map(({ label, date, shifts: dayShifts, status }) => (
         <div key={label} className="flex flex-col">
           <div className="flex items-center gap-1.5 mb-2">
             <div
@@ -166,7 +168,7 @@ function WeekSchedulePreview() {
           </div>
 
           <div className="space-y-1.5 overflow-y-auto" style={{ maxHeight: 220 }}>
-            {shifts.length === 0 ? (
+            {dayShifts.length === 0 ? (
               <div
                 className="rounded-lg py-4 flex items-center justify-center"
                 style={{ border: '1px dashed #3F3F46' }}
@@ -174,7 +176,7 @@ function WeekSchedulePreview() {
                 <span className="text-xs text-center" style={{ color: '#71717A' }}>No staff scheduled</span>
               </div>
             ) : (
-              shifts.map(shift => (
+              dayShifts.map(shift => (
                 <div
                   key={shift.id}
                   className="rounded-lg px-3 py-2 flex flex-col gap-1.5"
@@ -199,14 +201,6 @@ function WeekSchedulePreview() {
   );
 }
 
-const ACTION_FLAGS = [
-  { id: 1, message: 'Tuesday night has no Veteran assigned', severity: 'danger',  route: '/schedule' },
-  { id: 2, message: '4 availability requests pending review', severity: 'warning', route: '/approvals' },
-  { id: 3, message: 'Sunday morning understaffed by 2 Cooks',severity: 'danger',  route: '/schedule' },
-  { id: 4, message: 'Tyler Brooks set to Part Time',          severity: 'neutral', route: '/employees' },
-  { id: 5, message: 'Sales data missing for next week',       severity: 'warning', route: '/sales' },
-];
-
 function ActivityIcon({ type }: { type: string }) {
   const map: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
     schedule_generated: { icon: Sparkles,      color: '#818CF8', bg: 'rgba(129,140,248,0.15)' },
@@ -226,13 +220,84 @@ function ActivityIcon({ type }: { type: string }) {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const workplaceId = useWorkplaceId();
+  const { employees } = useEmployees();
   const [generatingSchedule, setGeneratingSchedule] = useState(false);
-  const pendingCount = mockAvailabilityRequests.filter(r => r.status === 'pending').length
-    + mockTimeOffRequests.filter(r => r.status === 'pending').length;
 
-  function handleGenerate() {
+  const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+  const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const weekStr = format(weekStart, 'yyyy-MM-dd');
+
+  const [labor, setLabor] = useState<LaborSummary>({
+    scheduledHours: 142,
+    laborCost: 3200,
+    laborBudget: 3450,
+    laborCostPct: 24.6,
+  });
+  const [pendingCount, setPendingCount] = useState(
+    mockAvailabilityRequests.filter(r => r.status === 'pending').length
+      + mockTimeOffRequests.filter(r => r.status === 'pending').length
+  );
+  const [shifts, setShifts] = useState<Shift[]>(mockShifts);
+  const [activity, setActivity] = useState<ActivityItem[]>(mockActivity);
+
+  useEffect(() => {
+    if (!isApiConfigured || !workplaceId) return;
+    void (async () => {
+      try {
+        const [summary, activityItems, scheduleDetail] = await Promise.all([
+          api.getDashboardSummary(weekStr),
+          api.getActivity(),
+          api.getScheduleByWeek(workplaceId, weekStr),
+        ]);
+        setLabor({
+          scheduledHours: summary.scheduledHours,
+          laborCost: summary.laborCost,
+          laborBudget: summary.laborBudget,
+          laborCostPct: summary.laborCostPct,
+        });
+        setPendingCount(summary.pendingApprovals);
+        setActivity(activityItems.map(a => ({
+          id: a.id,
+          type: a.type as ActivityItem['type'],
+          message: a.message,
+          timestamp: a.timestamp,
+          actor: a.actor ?? undefined,
+        })));
+        if (scheduleDetail) {
+          const mapped = loadScheduleWithEmployees(scheduleDetail, employees);
+          setShifts(mapped.shifts);
+        } else {
+          setShifts([]);
+        }
+      } catch {
+        /* keep mocks */
+      }
+    })();
+  }, [workplaceId, weekStr, employees]);
+
+  const actionFlags = [
+    ...(pendingCount > 0
+      ? [{ id: 'approvals', message: `${pendingCount} approval request${pendingCount > 1 ? 's' : ''} pending review`, severity: 'warning' as const, route: '/approvals' }]
+      : []),
+    { id: 'schedule', message: 'Review or publish this week\'s schedule', severity: 'neutral' as const, route: '/schedule' },
+    { id: 'sales', message: 'Update sales data for accurate staffing', severity: 'warning' as const, route: '/sales' },
+  ];
+
+  async function handleGenerate() {
     setGeneratingSchedule(true);
-    setTimeout(() => { setGeneratingSchedule(false); navigate('/schedule'); }, 1800);
+    try {
+      if (isApiConfigured) {
+        await api.generateSchedule(weekStr);
+      } else {
+        await new Promise(r => setTimeout(r, 1800));
+      }
+      navigate('/schedule');
+    } catch {
+      /* stay on page */
+    } finally {
+      setGeneratingSchedule(false);
+    }
   }
 
   return (
@@ -241,7 +306,7 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-semibold" style={{ color: '#FAFAFA' }}>Dashboard</h1>
           <p className="text-sm mt-0.5" style={{ color: '#A1A1AA' }}>
-            Week of {format(new Date('2024-05-20'), 'MMMM d')} — {format(new Date('2024-05-26'), 'MMMM d, yyyy')}
+            Week of {format(weekStart, 'MMMM d')} — {format(addDays(weekStart, 6), 'MMMM d, yyyy')}
           </p>
         </div>
         <button
@@ -266,18 +331,17 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* Top stats — 2 cards: Labor Cost (wide) + Pending Approvals */}
       <div className="grid gap-4 mb-6" style={{ gridTemplateColumns: '2fr 1fr' }}>
-        <LaborCard />
+        <LaborCard summary={labor} />
         <StatCard
           title="Pending Approvals"
           value={pendingCount}
           icon={ClipboardCheck}
           iconColor="#818CF8"
           iconBg="rgba(129,140,248,0.15)"
-          badge="warning"
+          badge={pendingCount > 0 ? 'warning' : undefined}
           trend="neutral"
-          trendValue="Requires your review"
+          trendValue={pendingCount > 0 ? 'Requires your review' : 'All caught up'}
         />
       </div>
 
@@ -295,7 +359,7 @@ export default function Dashboard() {
             View full schedule <ArrowRight size={12} />
           </button>
         </div>
-        <WeekSchedulePreview />
+        <WeekSchedulePreview shifts={shifts} weekDates={weekDates} />
         <div className="flex items-center gap-5 mt-4">
           {[
             { color: '#34D399', label: 'Fully staffed' },
@@ -317,7 +381,7 @@ export default function Dashboard() {
             <div className="text-sm font-medium" style={{ color: '#FAFAFA' }}>Action Required</div>
           </div>
           <div className="flex-1 space-y-1 overflow-y-auto">
-            {ACTION_FLAGS.map(flag => (
+            {actionFlags.map(flag => (
               <button
                 key={flag.id}
                 onClick={() => navigate(flag.route)}
@@ -329,7 +393,7 @@ export default function Dashboard() {
                 <div className="flex items-center gap-2.5">
                   <div
                     className="w-1.5 h-1.5 rounded-full shrink-0"
-                    style={{ backgroundColor: flag.severity === 'danger' ? '#F87171' : flag.severity === 'warning' ? '#FBBF24' : '#71717A' }}
+                    style={{ backgroundColor: flag.severity === 'warning' ? '#FBBF24' : '#71717A' }}
                   />
                   <span className="text-xs leading-relaxed" style={{ color: '#A1A1AA' }}>{flag.message}</span>
                 </div>
@@ -342,7 +406,9 @@ export default function Dashboard() {
         <div className="rounded-xl p-6" style={{ backgroundColor: '#27272A', border: '1px solid #3F3F46', boxShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
           <div className="text-sm font-medium mb-4" style={{ color: '#FAFAFA' }}>Recent Activity</div>
           <div className="space-y-3">
-            {mockActivity.map(item => (
+            {activity.length === 0 ? (
+              <p className="text-xs" style={{ color: '#71717A' }}>No recent activity</p>
+            ) : activity.map(item => (
               <div key={item.id} className="flex items-start gap-3">
                 <ActivityIcon type={item.type} />
                 <div className="flex-1 min-w-0">
@@ -362,7 +428,7 @@ export default function Dashboard() {
             {[
               {
                 label: 'Generate Schedule',
-                desc: 'Auto-assign employees for next week',
+                desc: 'Auto-assign employees for this week',
                 icon: Zap,
                 color: '#818CF8',
                 bg: 'rgba(129,140,248,0.15)',
@@ -370,7 +436,7 @@ export default function Dashboard() {
               },
               {
                 label: 'Review Approvals',
-                desc: `${pendingCount} requests awaiting your decision`,
+                desc: `${pendingCount} request${pendingCount !== 1 ? 's' : ''} awaiting your decision`,
                 icon: ClipboardCheck,
                 color: '#818CF8',
                 bg: 'rgba(129,140,248,0.15)',

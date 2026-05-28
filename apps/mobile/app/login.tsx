@@ -1,5 +1,7 @@
 import { useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,19 +15,29 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../constants/colors";
-import { currentUser } from "../constants/dummyData";
+import { api, setAuth } from "../lib/api";
 
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [email, setEmail] = useState(currentUser.email);
+  const [email, setEmail] = useState("alice@demo.com");
   const [password, setPassword] = useState("password123");
+  const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
 
-  const handleSignIn = () => {
-    router.replace("/(tabs)/home");
+  const handleSignIn = async () => {
+    setLoading(true);
+    try {
+      const res = await api.login(email.trim(), password);
+      await setAuth(res);
+      router.replace("/(tabs)/home");
+    } catch (e) {
+      Alert.alert("Sign in failed", e instanceof Error ? e.message : "Please try again");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -97,10 +109,15 @@ export default function LoginScreen() {
           </View>
 
           <Pressable
-            style={({ pressed }) => [styles.signInButton, pressed && styles.signInButtonPressed]}
+            style={({ pressed }) => [styles.signInButton, pressed && styles.signInButtonPressed, loading && styles.signInButtonDisabled]}
             onPress={handleSignIn}
+            disabled={loading}
           >
-            <Text style={styles.signInText}>Sign In</Text>
+            {loading ? (
+              <ActivityIndicator color={Colors.textLight} />
+            ) : (
+              <Text style={styles.signInText}>Sign In</Text>
+            )}
           </Pressable>
 
           <Pressable style={styles.forgotButton} hitSlop={8}>
@@ -183,6 +200,9 @@ const styles = StyleSheet.create({
   },
   signInButtonPressed: {
     opacity: 0.9,
+  },
+  signInButtonDisabled: {
+    opacity: 0.7,
   },
   signInText: {
     color: Colors.textLight,
