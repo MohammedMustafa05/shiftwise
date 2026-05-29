@@ -1,4 +1,4 @@
-import type { ClearviewSalesSyncResult } from "@shiftwise/shared";
+import type { ClearviewSalesSyncResult } from "@shiftagent/shared";
 import { query } from "../db/pool.js";
 import { getClearviewClient } from "../integrations/clearview/index.js";
 import { config } from "../config.js";

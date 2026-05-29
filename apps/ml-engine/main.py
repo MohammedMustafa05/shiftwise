@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 app = FastAPI(
-    title="ShiftWise ML Engine",
+    title="ShiftAgent ML Engine",
     description="Demand forecasting and schedule assignment service",
     version="0.1.0",
 )
@@ -16,7 +16,7 @@ class GenerateRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "shiftwise-ml-engine"}
+    return {"status": "ok", "service": "shiftagent-ml-engine"}
 
 
 @app.post("/generate")

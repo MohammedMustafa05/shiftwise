@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import type { UserRole } from "@shiftwise/shared";
+import type { UserRole } from "@shiftagent/shared";
 
 export function requireRole(...roles: UserRole[]) {
   return (req: Request, res: Response, next: NextFunction): void => {

@@ -27,3 +27,18 @@ export async function joinEmployee(app: Express, slug: string, suffix = "") {
     .send({ email, password: "password123", name: `Employee ${suffix}` });
   return { res, email, token: res.body.token as string, userId: res.body.user.id as string };
 }
+
+/** Submit 24h+ availability for the current week (creates availability_submissions row). */
+export async function submitEmployeeAvailability(app: Express, token: string) {
+  return request(app)
+    .put("/api/employees/me/availability")
+    .set("Authorization", `Bearer ${token}`)
+    .send({
+      blocks: [
+        { dayOfWeek: 1, block: "morning", startTime: "10:00", endTime: "16:00" },
+        { dayOfWeek: 2, block: "morning", startTime: "10:00", endTime: "16:00" },
+        { dayOfWeek: 3, block: "morning", startTime: "10:00", endTime: "16:00" },
+        { dayOfWeek: 4, block: "morning", startTime: "10:00", endTime: "16:00" },
+      ],
+    });
+}

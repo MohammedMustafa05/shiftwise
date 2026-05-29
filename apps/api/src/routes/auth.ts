@@ -5,7 +5,7 @@ import {
   SignupRequest,
   JoinRequest,
   AuthResponse,
-} from "@shiftwise/shared";
+} from "@shiftagent/shared";
 import { query } from "../db/pool.js";
 import { signToken } from "../middleware/auth.js";
 import { httpError } from "../middleware/errorHandler.js";

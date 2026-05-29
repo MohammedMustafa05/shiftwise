@@ -36,7 +36,7 @@ export const currentUser = {
   name: "Sarah Johnson",
   initials: "SJ",
   firstName: "Sarah",
-  email: "sarah.johnson@shiftwise.co",
+  email: "sarah.johnson@shiftagent.co",
   phone: "(416) 555-0142",
   role: "Barista",
   employmentType: "Full Time",
@@ -128,8 +128,11 @@ export const teamOnShiftToday: Teammate[] = teammates.slice(0, 4);
 export const announcements = [
   {
     id: "a1",
-    title: "Schedule for next week is now live",
+    title: "Weekly schedule is live",
     date: "May 24, 2026",
+    type: "schedule_published" as const,
+    route: "/(tabs)/schedule",
+    read: false,
   },
 ];
 

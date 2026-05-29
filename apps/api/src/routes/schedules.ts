@@ -1,6 +1,6 @@
 import { Router } from "express";
 import fs from "fs";
-import { CreateShiftRequest, GenerateScheduleRequest, UpdateShiftRequest } from "@shiftwise/shared";
+import { CreateShiftRequest, GenerateScheduleRequest, UpdateShiftRequest } from "@shiftagent/shared";
 import { authMiddleware } from "../middleware/auth.js";
 import { requireRole } from "../middleware/roleGuard.js";
 import { httpError } from "../middleware/errorHandler.js";

@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { config } from "../config.js";
-import type { UserRole } from "@shiftwise/shared";
+import type { UserRole } from "@shiftagent/shared";
 
 export interface AuthPayload {
   sub: string;

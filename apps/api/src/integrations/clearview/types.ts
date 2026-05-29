@@ -1,4 +1,4 @@
-import type { HourlySalesRow } from "@shiftwise/shared";
+import type { HourlySalesRow } from "@shiftagent/shared";
 
 export interface ClearviewTokens {
   accessToken: string;

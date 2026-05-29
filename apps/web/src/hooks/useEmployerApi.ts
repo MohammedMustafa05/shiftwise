@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { api, isApiConfigured } from '../lib/api';
 import type { Employee } from '../lib/types';
 import { mockEmployees } from '../lib/mockData';
+import { isSupabaseConfigured, supabase } from '../lib/supabase';
 
 export function useWorkplaceId(): string | null {
   const { user } = useAuth();
@@ -33,6 +34,36 @@ export function useEmployees() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!isApiConfigured || !workplaceId) return;
+    if (!isSupabaseConfigured || !supabase) return;
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void refresh(), 350);
+    };
+
+    const channel = supabase
+      .channel(`employees-${workplaceId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'employee_profiles', filter: `workplace_id=eq.${workplaceId}` },
+        scheduleRefresh
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'users', filter: `workplace_id=eq.${workplaceId}` },
+        scheduleRefresh
+      )
+      .subscribe();
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      void supabase.removeChannel(channel);
+    };
+  }, [workplaceId, refresh]);
 
   return { employees, setEmployees, loading, refresh, workplaceId };
 }

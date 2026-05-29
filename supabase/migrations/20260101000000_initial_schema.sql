@@ -1,4 +1,4 @@
--- ShiftWise Plan 1 schema
+-- ShiftAgent Plan 1 schema
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 

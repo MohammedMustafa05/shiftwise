@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "ShiftWise",
-    "slug": "shiftwise",
+    "name": "ShiftAgent",
+    "slug": "shiftagent",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "scheme": "shiftwise",
+    "scheme": "shiftagent",
     "ios": {
       "supportsTablet": true
     },

@@ -5,15 +5,20 @@ import {
   UpdateSalesRequest,
   UpdateWebPreferencesRequest,
   UpdateWorkplacePreferencesRequest,
-} from "@shiftwise/shared";
+} from "@shiftagent/shared";
 import { query } from "../db/pool.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { requireRole } from "../middleware/roleGuard.js";
 import { httpError } from "../middleware/errorHandler.js";
 import { importSalesCsv } from "../services/csvImportService.js";
 import { getClearviewMode } from "../services/salesSyncService.js";
-import { addDays, formatDate, getWeekStart } from "../utils/dates.js";
-import { mapWebEmployee, profileDataFromWebInput, apiRoleFromWeb } from "../utils/employeeMap.js";
+import { addDays, formatDate, getWeekStart, toIsoDate } from "../utils/dates.js";
+import {
+  mapWebEmployee,
+  profileDataFromWebInput,
+  apiRoleFromWeb,
+  displayNameFromProfile,
+} from "../utils/employeeMap.js";
 import bcrypt from "bcryptjs";
 import { logActivity } from "../services/activityService.js";
 
@@ -133,7 +138,9 @@ workplaceRouter.get("/:id", requireRole("EMPLOYER"), async (req, res, next) => {
         laborCostTarget: Math.round((prefs.labourCostPct ?? 0.2) * 100),
         maxConsecutiveDays: constraints.maxConsecutiveDays ?? 5,
         minAvailabilityHours: constraints.minAvailabilityHours ?? 20,
-        maxHoursPerWeek: constraints.maxHoursPerWeek ?? 45,
+        minDaysOffPerWeek: constraints.minDaysOffPerWeek ?? 2,
+        submitAvailabilityReminderEnabled:
+          constraints.submitAvailabilityReminderEnabled !== false,
         roleRequirements: constraints.roleRequirements ?? {},
         operatingHours: row.operating_hours?.default ?? { open: "10:00", close: "22:00" },
         operatingHoursByDay: row.operating_hours?.byDay ?? {},
@@ -154,7 +161,8 @@ workplaceRouter.put("/:id/web-preferences", requireRole("EMPLOYER"), async (req,
       constraints: {
         maxConsecutiveDays: body.maxConsecutiveDays,
         minAvailabilityHours: body.minAvailabilityHours,
-        maxHoursPerWeek: body.maxHoursPerWeek,
+        minDaysOffPerWeek: body.minDaysOffPerWeek ?? 2,
+        submitAvailabilityReminderEnabled: body.submitAvailabilityReminderEnabled ?? true,
         roleRequirements: body.roleRequirements,
       },
       shiftLengthHours: 8,
@@ -225,10 +233,11 @@ workplaceRouter.get("/:id/team-schedule", requireRole("EMPLOYEE", "EMPLOYER"), a
     const weekDate = new Date(weekStart + "T12:00:00");
     const result = await query(
       `SELECT ss.id, ss.employee_id, ss.shift_date, ss.start_time::text, ss.end_time::text, ss.role, ss.day_of_week,
-              u.name AS employee_name
+              u.name AS employee_name, ep.profile_data
        FROM schedule_shifts ss
        JOIN schedules s ON s.id = ss.schedule_id
        JOIN users u ON u.id = ss.employee_id
+       JOIN employee_profiles ep ON ep.user_id = u.id
        WHERE s.workplace_id = $1 AND s.week_start = $2 AND s.status = 'published'
        ORDER BY ss.shift_date, ss.start_time`,
       [req.params.id, weekStart]
@@ -237,8 +246,8 @@ workplaceRouter.get("/:id/team-schedule", requireRole("EMPLOYEE", "EMPLOYER"), a
       result.rows.map((r) => ({
         id: r.id,
         employeeId: r.employee_id,
-        employeeName: r.employee_name,
-        shiftDate: String(r.shift_date).slice(0, 10),
+        employeeName: displayNameFromProfile(r.employee_name, r.profile_data ?? {}),
+        shiftDate: toIsoDate(r.shift_date),
         startTime: r.start_time.slice(0, 5),
         endTime: r.end_time.slice(0, 5),
         role: r.role,
@@ -326,6 +335,29 @@ workplaceRouter.patch("/:id/employees/:profileId", requireRole("EMPLOYER"), asyn
       [req.params.profileId]
     );
     res.json(mapWebEmployee(full.rows[0] as Parameters<typeof mapWebEmployee>[0]));
+  } catch (e) {
+    next(e);
+  }
+});
+
+workplaceRouter.delete("/:id/employees/:profileId", requireRole("EMPLOYER"), async (req, res, next) => {
+  try {
+    if (req.auth?.workplaceId !== req.params.id) throw httpError(403, "Forbidden");
+
+    const profile = await query<{ user_id: string; name: string; role: string }>(
+      `SELECT u.id AS user_id, u.name, u.role
+       FROM employee_profiles ep
+       JOIN users u ON u.id = ep.user_id
+       WHERE ep.id = $1 AND ep.workplace_id = $2`,
+      [req.params.profileId, req.params.id]
+    );
+    if (profile.rows.length === 0) throw httpError(404, "Employee not found");
+    if (profile.rows[0].role !== "EMPLOYEE") throw httpError(400, "Cannot remove this user");
+
+    const { user_id: userId, name } = profile.rows[0];
+    await query(`DELETE FROM users WHERE id = $1 AND workplace_id = $2`, [userId, req.params.id]);
+    await logActivity(req.params.id, "employee_removed", `Removed employee ${name}`, req.auth!.email);
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }

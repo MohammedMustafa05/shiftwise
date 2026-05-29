@@ -1,18 +1,35 @@
-import type { AuthResponse } from '@shiftwise/shared';
+import type { AuthResponse } from '@shiftagent/shared';
 
 export const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
 export const isApiConfigured = Boolean(API_URL);
 
-const TOKEN_KEY = 'shiftwise_token';
-const USER_KEY = 'shiftwise_user';
+const TOKEN_KEY = 'shiftagent_token';
+const USER_KEY = 'shiftagent_user';
+const LEGACY_TOKEN_KEY = 'shiftwise_token';
+const LEGACY_USER_KEY = 'shiftwise_user';
 
 export type StoredAuthUser = AuthResponse['user'];
 
+function migrateLegacyAuth(): void {
+  const legacyToken = localStorage.getItem(LEGACY_TOKEN_KEY);
+  const legacyUser = localStorage.getItem(LEGACY_USER_KEY);
+  if (legacyToken && !localStorage.getItem(TOKEN_KEY)) {
+    localStorage.setItem(TOKEN_KEY, legacyToken);
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
+  }
+  if (legacyUser && !localStorage.getItem(USER_KEY)) {
+    localStorage.setItem(USER_KEY, legacyUser);
+    localStorage.removeItem(LEGACY_USER_KEY);
+  }
+}
+
 export function getToken(): string | null {
+  migrateLegacyAuth();
   return localStorage.getItem(TOKEN_KEY);
 }
 
 export function getStoredUser(): StoredAuthUser | null {
+  migrateLegacyAuth();
   const raw = localStorage.getItem(USER_KEY);
   if (!raw) return null;
   try {

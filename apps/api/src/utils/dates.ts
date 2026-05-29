@@ -11,6 +11,16 @@ export function formatDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Normalize Postgres DATE / timestamps to `YYYY-MM-DD`. */
+export function toIsoDate(val: unknown): string {
+  if (val instanceof Date) return formatDate(val);
+  const s = String(val);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return formatDate(d);
+  return s.slice(0, 10);
+}
+
 export function addDays(date: Date, days: number): Date {
   const d = new Date(date);
   d.setUTCDate(d.getUTCDate() + days);

@@ -1,5 +1,5 @@
 {
-  "name": "shiftwise",
+  "name": "shiftagent",
   "version": "0.1.0",
   "private": true,
   "description": "AI-powered restaurant scheduling platform",
@@ -9,18 +9,18 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspaces --if-present",
-    "dev:web": "npm run dev -w @shiftwise/web",
-    "dev:api": "npm run dev -w @shiftwise/api",
-    "dev:mobile": "npm run dev -w @shiftwise/mobile",
-    "dev:mobile:ios": "npm run ios -w @shiftwise/mobile",
-    "dev:mobile:android": "npm run android -w @shiftwise/mobile",
+    "dev:web": "npm run dev -w @shiftagent/web",
+    "dev:api": "npm run dev -w @shiftagent/api",
+    "dev:mobile": "npm run dev -w @shiftagent/mobile",
+    "dev:mobile:ios": "npm run ios -w @shiftagent/mobile",
+    "dev:mobile:android": "npm run android -w @shiftagent/mobile",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "test:api": "npm run test -w @shiftwise/api",
+    "test:api": "npm run test -w @shiftagent/api",
     "test:ml": "cd apps/ml-engine && python -m pytest",
-    "db:migrate": "npm run db:migrate -w @shiftwise/api",
-    "db:seed": "npm run db:seed -w @shiftwise/api",
-    "db:import-sales": "npm run db:import-sales -w @shiftwise/api"
+    "db:migrate": "npm run db:migrate -w @shiftagent/api",
+    "db:seed": "npm run db:seed -w @shiftagent/api",
+    "db:import-sales": "npm run db:import-sales -w @shiftagent/api"
   },
   "engines": {
     "node": ">=20"

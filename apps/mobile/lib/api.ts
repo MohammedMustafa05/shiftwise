@@ -1,12 +1,33 @@
-import type { AuthResponse } from "@shiftwise/shared";
+import type { AuthResponse } from "@shiftagent/shared";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 
-const TOKEN_KEY = "shiftwise_token";
-const USER_KEY = "shiftwise_user";
+const TOKEN_KEY = "shiftagent_token";
+const USER_KEY = "shiftagent_user";
+const LEGACY_TOKEN_KEY = "shiftwise_token";
+const LEGACY_USER_KEY = "shiftwise_user";
 
 export type StoredUser = AuthResponse["user"];
+
+async function migrateLegacyAuth(): Promise<void> {
+  try {
+    const legacyToken = await SecureStore.getItemAsync(LEGACY_TOKEN_KEY);
+    const legacyUser = await SecureStore.getItemAsync(LEGACY_USER_KEY);
+    const currentToken = await SecureStore.getItemAsync(TOKEN_KEY);
+    const currentUser = await SecureStore.getItemAsync(USER_KEY);
+    if (legacyToken && !currentToken) {
+      await SecureStore.setItemAsync(TOKEN_KEY, legacyToken);
+      await SecureStore.deleteItemAsync(LEGACY_TOKEN_KEY);
+    }
+    if (legacyUser && !currentUser) {
+      await SecureStore.setItemAsync(USER_KEY, legacyUser);
+      await SecureStore.deleteItemAsync(LEGACY_USER_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
 
 /** Resolve API base URL for simulator, emulator, and physical device. */
 export function resolveApiBase(): string {
@@ -39,6 +60,7 @@ export const API_BASE = resolveApiBase();
 
 export async function getToken(): Promise<string | null> {
   try {
+    await migrateLegacyAuth();
     return await SecureStore.getItemAsync(TOKEN_KEY);
   } catch {
     return null;
@@ -47,6 +69,7 @@ export async function getToken(): Promise<string | null> {
 
 export async function getStoredUser(): Promise<StoredUser | null> {
   try {
+    await migrateLegacyAuth();
     const raw = await SecureStore.getItemAsync(USER_KEY);
     return raw ? (JSON.parse(raw) as StoredUser) : null;
   } catch {
@@ -115,14 +138,37 @@ export const api = {
       id: string;
       email: string;
       name: string;
+      preferredName: string | null;
       phone: string | null;
       role: string;
+      roles: string[];
       workplaceId: string;
       workplaceName: string;
       location: string | null;
       employmentType: string | null;
+      fullDayCapable: boolean;
       startDate: string | null;
     }>("/employees/me"),
+
+  updateMe: (body: { preferredName?: string; phone?: string }) =>
+    apiFetch<{
+      id: string;
+      email: string;
+      name: string;
+      preferredName: string | null;
+      phone: string | null;
+      role: string;
+      roles: string[];
+      workplaceId: string;
+      workplaceName: string;
+      location: string | null;
+      employmentType: string | null;
+      fullDayCapable: boolean;
+      startDate: string | null;
+    }>("/employees/me", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
 
   getStats: (week?: string) =>
     apiFetch<{
@@ -140,6 +186,7 @@ export const api = {
 
   getMySchedule: (week?: string) =>
     apiFetch<{
+      scheduleId: string | null;
       weekStart: string;
       shifts: Array<{
         id: string;
@@ -169,16 +216,24 @@ export const api = {
   getAvailability: () =>
     apiFetch<
       Array<{
-        day: string;
         dayOfWeek: number;
-        from: string;
-        to: string;
+        block?: string;
+        label?: string;
+        startTime: string;
+        endTime: string;
         managerApproved: boolean;
         confirmed: boolean;
       }>
     >("/employees/me/availability"),
 
-  saveAvailability: (blocks: Array<{ dayOfWeek: number; startTime: string; endTime: string }>) =>
+  saveAvailability: (
+    blocks: Array<{
+      dayOfWeek: number;
+      startTime: string;
+      endTime: string;
+      block?: string;
+    }>,
+  ) =>
     apiFetch("/employees/me/availability", {
       method: "PUT",
       body: JSON.stringify({ blocks }),
@@ -256,7 +311,36 @@ export const api = {
     apiFetch(`/open-shifts/${id}/claim`, { method: "POST" }),
 
   getAnnouncements: () =>
-    apiFetch<Array<{ id: string; title: string; date: string; type: string }>>(
-      "/employees/me/announcements",
-    ),
+    apiFetch<
+      Array<{
+        id: string;
+        title: string;
+        date: string;
+        type: string;
+        route: string;
+        read: boolean;
+      }>
+    >("/employees/me/announcements"),
+
+  markAnnouncementRead: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/employees/me/announcements/${id}/read`, {
+      method: "POST",
+    }),
+
+  submitTimeOff: (body: {
+    startDate: string;
+    endDate: string;
+    reason?: string;
+    requestType: "Vacation" | "Sick Day" | "Personal";
+  }) =>
+    apiFetch<{ id: string }>("/employees/me/time-off", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  markScheduleViewed: (scheduleId: string) =>
+    apiFetch("/employees/me/schedule-viewed", {
+      method: "POST",
+      body: JSON.stringify({ scheduleId }),
+    }),
 };

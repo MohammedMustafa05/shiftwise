@@ -1,5 +1,5 @@
 {
-  "name": "@shiftwise/mobile",
+  "name": "@shiftagent/mobile",
   "version": "0.1.0",
   "main": "expo-router/entry",
   "private": true,
@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
-    "@shiftwise/shared": "*",
+    "@shiftagent/shared": "*",
+    "@supabase/supabase-js": "^2.49.1",
     "expo": "~56.0.4",
     "expo-constants": "~56.0.15",
     "expo-linking": "~56.0.11",

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app.js";
-import { signupEmployer, joinEmployee } from "./helpers.js";
+import { signupEmployer, joinEmployee, submitEmployeeAvailability } from "./helpers.js";
 import { query } from "../src/db/pool.js";
 import { formatDate, getWeekStart, addDays } from "../src/utils/dates.js";
 
@@ -33,10 +33,7 @@ describe("rbac", () => {
       [workplaceId]
     );
     const emp = await joinEmployee(app, invite.rows[0].slug, "-rbac2e");
-    await request(app)
-      .put(`/api/employees/${emp.userId}/availability`)
-      .set("Authorization", `Bearer ${emp.token}`)
-      .send({ blocks: [{ dayOfWeek: 2, startTime: "10:00", endTime: "18:00" }] });
+    await submitEmployeeAvailability(app, emp.token);
 
     const profile = await query<{ id: string }>(`SELECT id FROM employee_profiles WHERE user_id = $1`, [
       emp.userId,
@@ -46,7 +43,7 @@ describe("rbac", () => {
       .set("Authorization", `Bearer ${employerToken}`)
       .send({ employeeNumber: "E200", payrollDepartment: "D1", jobCode: "STAFF" });
 
-    const weekStart = formatDate(getWeekStart(addDays(new Date(), 7)));
+    const weekStart = formatDate(getWeekStart(new Date()));
     const gen = await request(app)
       .post("/api/schedules/generate")
       .set("Authorization", `Bearer ${employerToken}`)

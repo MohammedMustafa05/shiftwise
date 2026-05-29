@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app.js";
-import { signupEmployer, joinEmployee } from "./helpers.js";
+import { signupEmployer, joinEmployee, submitEmployeeAvailability } from "./helpers.js";
 import { query } from "../src/db/pool.js";
-import { formatDate, getWeekStart, addDays } from "../src/utils/dates.js";
+import { formatDate, getWeekStart } from "../src/utils/dates.js";
 
 const app = createApp();
 
@@ -42,12 +42,9 @@ describe("schedule generate", () => {
       [workplaceId]
     );
     const emp = await joinEmployee(app, invite.rows[0].slug, "-gen1e");
-    await request(app)
-      .put(`/api/employees/${emp.userId}/availability`)
-      .set("Authorization", `Bearer ${emp.token}`)
-      .send({ blocks: [{ dayOfWeek: 0, startTime: "09:00", endTime: "17:00" }] });
+    await submitEmployeeAvailability(app, emp.token);
 
-    const weekStart = formatDate(getWeekStart(addDays(new Date(), 7)));
+    const weekStart = formatDate(getWeekStart(new Date()));
     const res = await request(app)
       .post("/api/schedules/generate")
       .set("Authorization", `Bearer ${token}`)

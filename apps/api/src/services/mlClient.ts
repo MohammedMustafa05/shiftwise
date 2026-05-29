@@ -2,8 +2,8 @@ import type {
   GenerateScheduleResponse,
   HourlySalesRow,
   WorkplacePreferences,
-} from "@shiftwise/shared";
-import { AvailabilityBlock, EmployeeProfile } from "@shiftwise/shared";
+} from "@shiftagent/shared";
+import { AvailabilityBlock, EmployeeProfile } from "@shiftagent/shared";
 import { z } from "zod";
 import { config } from "../config.js";
 import { addDays, formatDate, getWeekStart } from "../utils/dates.js";
@@ -24,7 +24,7 @@ export function generateScheduleStub(
   sales: HourlySalesRow[],
   preferences: WorkplacePreferences,
   employees: Array<{ userId: string; role: string }>,
-  availability: z.infer<typeof AvailabilityBlock>[]
+  availability: Array<z.infer<typeof AvailabilityBlock> & { userId?: string }>
 ): GenerateScheduleResponse {
   const labourPct = preferences.labourCostPct ?? 0.2;
   const avgWage = preferences.avgHourlyWage ?? 18.5;
@@ -56,25 +56,33 @@ export function generateScheduleStub(
 
   const shifts: GenerateScheduleResponse["shifts"] = [];
   const flags: GenerateScheduleResponse["flags"] = [];
+  const employeesWithAvailability = new Set(
+    availability.map((a) => a.userId).filter(Boolean) as string[]
+  );
+  const schedulableEmployees = employees.filter((e) => employeesWithAvailability.has(e.userId));
 
-  if (employees.length > 0) {
+  if (schedulableEmployees.length > 0) {
     for (let d = 0; d < 7; d++) {
       const shiftDate = formatDate(addDays(start, d));
-      const emp = employees[d % employees.length];
-      const blocks = availability.filter((a) => a.dayOfWeek === d);
-      const startTime = blocks[0]?.startTime ?? "09:00";
-      const endTime = blocks[0]?.endTime ?? "17:00";
-      shifts.push({
-        id: crypto.randomUUID(),
-        employeeId: emp.userId,
-        day: ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"][d],
-        shiftDate,
-        startTime,
-        endTime,
-        role: emp.role,
-        location: "Main",
-      });
+      const dow = new Date(`${shiftDate}T12:00:00Z`).getUTCDay();
+      for (const emp of schedulableEmployees) {
+        const blocks = availability.filter((a) => a.userId === emp.userId && a.dayOfWeek === dow);
+        if (blocks.length === 0) continue;
+        const block = blocks[0];
+        shifts.push({
+          id: crypto.randomUUID(),
+          employeeId: emp.userId,
+          day: ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][dow],
+          shiftDate,
+          startTime: block.startTime,
+          endTime: block.endTime,
+          role: emp.role,
+          location: "Main",
+        });
+      }
     }
+  } else if (employees.length > 0) {
+    flags.push({ type: "understaffed", message: "No employees with availability for this week" });
   } else {
     flags.push({ type: "understaffed", message: "No employees in roster" });
   }

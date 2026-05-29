@@ -1,5 +1,5 @@
 {
-  "name": "@shiftwise/api",
+  "name": "@shiftagent/api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -15,7 +15,7 @@
     "db:import-sales": "tsx src/scripts/importDropChartSales.ts"
   },
   "dependencies": {
-    "@shiftwise/shared": "*",
+    "@shiftagent/shared": "*",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "csv-parse": "^5.6.0",

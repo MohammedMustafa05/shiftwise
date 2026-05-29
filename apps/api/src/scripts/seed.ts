@@ -4,6 +4,11 @@ import pg from "pg";
 import { config, assertDatabaseConfigured } from "../config.js";
 import { encrypt } from "../utils/crypto.js";
 import { addDays, formatDate, getWeekStart } from "../utils/dates.js";
+import {
+  gridFromSelections,
+  matchBlockFromTimes,
+  selectionFromBlockInput,
+} from "../utils/availabilityBlocks.js";
 import { defaultDropChartCsvPath, importSalesCsv } from "../services/csvImportService.js";
 import { endPool } from "../db/pool.js";
 
@@ -23,14 +28,13 @@ type SeedEmployee = {
   submissionStatus: "pending" | "approved" | "rejected" | "none";
 };
 
-function blocksToGrid(blocks: AvailBlock[]): Record<string, string[]> {
-  const grid: Record<string, string[]> = {};
-  for (const b of blocks) {
-    const key = DAY_NAMES[b.dayOfWeek];
-    grid[key] = grid[key] ?? [];
-    grid[key].push(b.startTime, b.endTime);
-  }
-  return grid;
+function blocksToGrid(blocks: AvailBlock[]) {
+  const selections = blocks.map((b) => {
+    const matched = matchBlockFromTimes(b.dayOfWeek, b.startTime, b.endTime);
+    if (matched) return selectionFromBlockInput(b.dayOfWeek, matched);
+    return selectionFromBlockInput(b.dayOfWeek, "morning");
+  });
+  return gridFromSelections(selections);
 }
 
 const DEMO_EMPLOYEES: SeedEmployee[] = [
@@ -170,12 +174,13 @@ const DEMO_EMPLOYEES: SeedEmployee[] = [
       shiftTier: "Rush-capable",
       minHours: 20,
       maxHours: 40,
+      fullDayCapable: false,
       employeeType: "Part Time",
       pairingAlwaysWith: [],
       pairingNeverWith: [],
     },
     availability: [
-      { dayOfWeek: 1, startTime: "10:00", endTime: "14:00" },
+      { dayOfWeek: 1, startTime: "10:00", endTime: "22:00" },
       { dayOfWeek: 3, startTime: "10:00", endTime: "14:00" },
       { dayOfWeek: 5, startTime: "16:00", endTime: "22:00" },
     ],
@@ -217,6 +222,20 @@ async function seed() {
     [JSON.stringify(preferences), JSON.stringify(operatingHours)]
   );
   const workplaceId = wp.rows[0].id;
+
+  // Reset transactional demo data for a clean test run
+  await client.query(
+    `DELETE FROM schedule_shifts WHERE schedule_id IN (SELECT id FROM schedules WHERE workplace_id = $1)`,
+    [workplaceId]
+  );
+  await client.query(`DELETE FROM schedules WHERE workplace_id = $1`, [workplaceId]);
+  await client.query(`DELETE FROM availability_submissions WHERE workplace_id = $1`, [workplaceId]);
+  await client.query(`DELETE FROM time_off_requests WHERE workplace_id = $1`, [workplaceId]);
+  await client.query(`DELETE FROM activity_log WHERE workplace_id = $1`, [workplaceId]);
+  await client.query(
+    `UPDATE employee_profiles SET first_approval_completed = false WHERE workplace_id = $1`,
+    [workplaceId]
+  );
 
   await client.query(
     `INSERT INTO workplace_invites (workplace_id, slug) VALUES ($1, 'demo')
@@ -269,13 +288,6 @@ async function seed() {
     );
 
     await client.query(`DELETE FROM employee_availability WHERE user_id = $1`, [userId]);
-    for (const block of e.availability) {
-      await client.query(
-        `INSERT INTO employee_availability (user_id, day_of_week, start_time, end_time)
-         VALUES ($1, $2, $3, $4)`,
-        [userId, block.dayOfWeek, block.startTime, block.endTime]
-      );
-    }
 
     if (e.submissionStatus !== "none") {
       const grid = blocksToGrid(e.availability);
@@ -299,6 +311,12 @@ async function seed() {
 
     seeded.push({ email: e.email, userId, submission: e.submissionStatus });
   }
+
+  const carolId = seeded.find((s) => s.email === "carol@demo.com")!.userId;
+  await client.query(
+    `UPDATE employee_profiles SET first_approval_completed = true WHERE user_id = $1 AND workplace_id = $2`,
+    [carolId, workplaceId]
+  );
 
   // Time-off requests for approvals tab
   const aliceId = seeded.find((s) => s.email === "alice@demo.com")!.userId;

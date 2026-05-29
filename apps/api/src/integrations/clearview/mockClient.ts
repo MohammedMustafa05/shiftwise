@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import type { HourlySalesRow } from "@shiftwise/shared";
+import type { HourlySalesRow } from "@shiftagent/shared";
 import { config } from "../../config.js";
 import type { ClearviewTokens, IClearviewClient } from "./types.js";
 import { mapRawClearviewSales, normalizeSalesToWeek } from "./normalizeSales.js";

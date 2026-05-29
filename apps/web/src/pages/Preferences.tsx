@@ -24,7 +24,7 @@ const DAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'
 type DayName = typeof DAY_NAMES[number];
 interface DayHours { open: string; close: string; closed: boolean; }
 
-const WEEKEND_DAYS: readonly DayName[] = ['Saturday', 'Sunday'];
+const WEEKEND_DAYS: readonly DayName[] = ['Friday', 'Saturday'];
 
 const TIME_OPTIONS: { value: string; label: string }[] = (() => {
   const opts: { value: string; label: string }[] = [];
@@ -172,7 +172,7 @@ function RoleRequirementsSection({
   const rules = prefs.role_requirements[activeDay] ?? [];
 
   function addRule() {
-    const newRule: TimeRangeRule = { from: '10:00', to: '16:00', cashiers: 0, cooks: 0, packliners: 0 };
+    const newRule: TimeRangeRule = { from: '10:00', to: '16:00', cashiers: 1, cooks: 1, packliners: 1 };
     setPrefs(p => ({
       ...p,
       role_requirements: {
@@ -572,11 +572,11 @@ export default function PreferencesPage() {
               hint="Minimum hours each employee must be available"
             />
             <NumInput
-              label="Maximum Hours Assigned Per Week"
-              value={prefs.max_hours_per_week}
-              onChange={v => updateLabor('max_hours_per_week', v)}
-              min={0} max={80} suffix="hours"
-              hint="Employees will not be scheduled beyond this limit"
+              label="Minimum Days Off Per Employee"
+              value={prefs.min_days_off_per_week}
+              onChange={v => updateLabor('min_days_off_per_week', v)}
+              min={0} max={7} suffix="days"
+              hint="Default days off required per employee each week"
             />
           </div>
         </Section>
@@ -654,74 +654,6 @@ export default function PreferencesPage() {
                 }}>
                   <Lock size={12} />
                   Operating hours are locked. Unlock to make changes.
-                </div>
-              </div>
-
-              {/* Bulk action bar */}
-              <div style={{ marginBottom: 24 }}>
-                <div
-                  onClick={() => setBulkExpanded(x => !x)}
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    cursor: 'pointer',
-                    color: '#71717A',
-                    fontSize: 12,
-                    marginBottom: bulkExpanded ? 8 : 0,
-                    transition: 'color 0.15s, margin-bottom 0.08s ease-in-out',
-                    userSelect: 'none',
-                  }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#FAFAFA'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#71717A'}
-                >
-                  <span>Apply to all days</span>
-                  <div style={{
-                    display: 'flex', alignItems: 'center',
-                    transform: bulkExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                    transition: 'transform 0.08s ease-in-out',
-                  }}>
-                    <ChevronDown size={12} />
-                  </div>
-                </div>
-
-                <div style={{
-                  display: 'grid',
-                  gridTemplateRows: bulkExpanded ? '1fr' : '0fr',
-                  transition: 'grid-template-rows 0.08s ease-in-out',
-                }}>
-                  <div style={{ overflow: 'hidden' }}>
-                    <div style={{
-                      display: 'flex', alignItems: 'center', gap: 12,
-                      padding: '12px 16px',
-                      backgroundColor: '#18181B',
-                      borderRadius: 8, border: '1px solid #3F3F46',
-                      opacity: hoursLocked ? 0.4 : 1,
-                      pointerEvents: hoursLocked ? 'none' : 'auto',
-                      transition: 'opacity 0.2s',
-                    }}>
-                      <span style={{ color: '#71717A', fontSize: 12, flex: 1 }}>
-                        Set same hours for all days
-                      </span>
-                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
-                        <div>
-                          <div style={{ color: '#71717A', fontSize: 11, marginBottom: 6 }}>Opens</div>
-                          <WheelPicker value={bulkOpen} onChange={setBulkOpen} />
-                        </div>
-                        <div>
-                          <div style={{ color: '#71717A', fontSize: 11, marginBottom: 6 }}>Closes</div>
-                          <WheelPicker value={bulkClose} onChange={setBulkClose} />
-                        </div>
-                        <button
-                          onClick={applyToAll}
-                          className="flex items-center px-3 py-2 rounded-lg text-xs font-medium transition-all"
-                          style={{ backgroundColor: '#818CF8', color: '#FFFFFF', border: 'none', cursor: 'pointer', marginBottom: 2 }}
-                          onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#6366F1'}
-                          onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#818CF8'}
-                        >
-                          Apply to all
-                        </button>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </div>
 

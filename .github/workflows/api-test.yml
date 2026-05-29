@@ -14,7 +14,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: shiftwise
+          POSTGRES_DB: shiftagent
         ports:
           - 5432:5432
         options: >-
@@ -29,13 +29,13 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
-      - run: npm run db:migrate -w @shiftwise/api
+      - run: npm run db:migrate -w /api
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shiftwise
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shiftagent
       - run: npm run test:api
         env:
           USE_REAL_POSTGRES: "1"
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shiftwise
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shiftagent
           JWT_SECRET: test-secret
           CRON_SECRET: dev-cron-secret
           TOKEN_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"

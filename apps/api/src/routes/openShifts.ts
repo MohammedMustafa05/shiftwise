@@ -1,11 +1,13 @@
 import { Router } from "express";
-import { CreateOpenShiftRequest } from "@shiftwise/shared";
+import { CreateOpenShiftRequest } from "@shiftagent/shared";
 import { query } from "../db/pool.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { requireRole } from "../middleware/roleGuard.js";
 import { httpError } from "../middleware/errorHandler.js";
 import { logActivity } from "../services/activityService.js";
+import { createNotification } from "../services/notificationService.js";
 import { normalizeRole } from "../utils/employeeMap.js";
+import { toIsoDate } from "../utils/dates.js";
 
 export const openShiftsRouter = Router();
 
@@ -60,7 +62,7 @@ openShiftsRouter.get("/", async (req, res, next) => {
           shiftId: r.shift_id,
           postedById: r.posted_by,
           postedByName: r.posted_by_name,
-          shiftDate: String(r.shift_date).slice(0, 10),
+          shiftDate: toIsoDate(r.shift_date),
           startTime: r.start_time.slice(0, 5),
           endTime: r.end_time.slice(0, 5),
           role: normalizeRole(r.role),
@@ -166,6 +168,15 @@ openShiftsRouter.post("/:id/claim", async (req, res, next) => {
       "open_shift_claimed",
       `${claimer.rows[0]?.name ?? "Employee"} claimed an open shift`,
       req.auth!.email
+    );
+
+    await createNotification(
+      row.posted_by,
+      workplaceId,
+      "offer_shift_accepted",
+      `${claimer.rows[0]?.name ?? "A coworker"} claimed your offered shift`,
+      "/offer-shift",
+      req.params.id
     );
 
     res.json({ ok: true });

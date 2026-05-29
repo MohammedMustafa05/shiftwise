@@ -13,8 +13,28 @@ export const EmployeeProfileData = z.object({
   minShiftsPerWeek: z.number().optional(),
   maxShiftsPerWeek: z.number().optional(),
   employeeType: z.string().optional(),
+  fullDayCapable: z.boolean().optional(),
   pairingAlwaysWith: z.array(z.string()).optional(),
   pairingNeverWith: z.array(z.string()).optional(),
+});
+
+export const UpdateMobileProfileRequest = z.object({
+  preferredName: z.string().min(1).optional(),
+  phone: z.string().optional(),
+});
+
+export const ApproveAvailabilityRequest = z.object({
+  status: z.enum(["approved", "rejected"]),
+  employmentType: z.enum(["Full Time", "Part Time"]).optional(),
+  roles: z.array(z.string()).optional(),
+  fullDayCapable: z.boolean().optional(),
+});
+
+export const CreateTimeOffBody = z.object({
+  startDate: z.string(),
+  endDate: z.string(),
+  reason: z.string().optional(),
+  requestType: z.enum(["Vacation", "Sick Day", "Personal"]).default("Personal"),
 });
 
 export const WebEmployee = z.object({
@@ -98,7 +118,9 @@ export const WebPreferences = z.object({
   laborCostTarget: z.number(),
   maxConsecutiveDays: z.number(),
   minAvailabilityHours: z.number(),
-  maxHoursPerWeek: z.number(),
+  minDaysOffPerWeek: z.number().optional(),
+  maxHoursPerWeek: z.number().optional(),
+  submitAvailabilityReminderEnabled: z.boolean().optional(),
   roleRequirements: z.record(z.array(z.object({
     from: z.string(),
     to: z.string(),
@@ -143,12 +165,15 @@ export const EmployeeMeResponse = z.object({
   id: z.string().uuid(),
   email: z.string(),
   name: z.string(),
+  preferredName: z.string().nullable(),
   phone: z.string().nullable(),
   role: z.string(),
+  roles: z.array(z.string()),
   workplaceId: z.string().uuid(),
   workplaceName: z.string(),
   location: z.string().nullable(),
   employmentType: z.string().nullable(),
+  fullDayCapable: z.boolean(),
   startDate: z.string().nullable(),
 });
 

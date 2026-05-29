@@ -36,7 +36,27 @@ export function getMondayForOffset(offset: number): Date {
 }
 
 export function formatDateYmd(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Ensure API date strings are `YYYY-MM-DD` before comparing or displaying. */
+export function normalizeIsoDate(dateStr: string): string {
+  const trimmed = dateStr.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10);
+  const d = new Date(trimmed);
+  if (!Number.isNaN(d.getTime())) return formatDateYmd(d);
+  return trimmed.slice(0, 10);
+}
+
+export function weekdayShortFromIso(dateStr: string): string {
+  const iso = normalizeIsoDate(dateStr);
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", { weekday: "short" });
 }
 
 export function formatShiftDateLabel(dateStr: string): string {

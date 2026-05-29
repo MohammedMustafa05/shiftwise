@@ -21,7 +21,7 @@ export default function SplashScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <View style={styles.content}>
-        <Text style={styles.wordmark}>Shiftwise</Text>
+        <Text style={styles.wordmark}>ShiftAgent</Text>
         <Text style={styles.tagline}>Scheduling, simplified</Text>
       </View>
     </View>

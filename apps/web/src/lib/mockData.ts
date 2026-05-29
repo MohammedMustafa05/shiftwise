@@ -8,70 +8,70 @@ export const mockEmployees: Employee[] = [
     id: 'emp-1', created_at: '2023-06-10T09:00:00Z',
     name: 'Maria Santos', preferred_name: 'Maria', email: 'maria.santos@example.com', phone: '(555) 234-5678',
     role: ['Cook'], experience_level: 'Veteran', shift_tier: 'Rush-capable',
-    min_hours: 25, max_hours: 40, min_shifts_per_week: 3, max_shifts_per_week: 5, employee_type: 'Full Time',
+    min_hours: 25, max_hours: 40, employee_type: 'Full Time',
     pairing_always_with: ['emp-4'], pairing_never_with: [],
   },
   {
     id: 'emp-2', created_at: '2023-08-22T09:00:00Z',
     name: 'James Chen', preferred_name: 'James', email: 'james.chen@example.com', phone: '(555) 345-6789',
     role: ['Cashier'], experience_level: 'Intermediate', shift_tier: 'Rush-capable',
-    min_hours: 20, max_hours: 35, min_shifts_per_week: 2, max_shifts_per_week: 4, employee_type: 'Part Time',
+    min_hours: 20, max_hours: 35, employee_type: 'Part Time',
     pairing_always_with: [], pairing_never_with: [],
   },
   {
     id: 'emp-3', created_at: '2024-01-05T09:00:00Z',
     name: 'Aisha Thompson', preferred_name: 'Aisha', email: 'aisha.t@example.com', phone: '(555) 456-7890',
     role: ['Packliner'], experience_level: 'Trainee', shift_tier: 'Light shifts',
-    min_hours: 15, max_hours: 30, min_shifts_per_week: 2, max_shifts_per_week: 3, employee_type: 'Part Time',
+    min_hours: 15, max_hours: 30, employee_type: 'Part Time',
     pairing_always_with: [], pairing_never_with: [],
   },
   {
     id: 'emp-4', created_at: '2022-11-14T09:00:00Z',
     name: 'Carlos Rivera', preferred_name: 'Carlos', email: 'carlos.r@example.com', phone: '(555) 567-8901',
     role: ['Cook', 'Cashier'], experience_level: 'Veteran', shift_tier: 'Rush-capable',
-    min_hours: 30, max_hours: 40, min_shifts_per_week: 4, max_shifts_per_week: 5, employee_type: 'Full Time',
+    min_hours: 30, max_hours: 40, employee_type: 'Full Time',
     pairing_always_with: ['emp-1'], pairing_never_with: [],
   },
   {
     id: 'emp-5', created_at: '2023-03-17T09:00:00Z',
     name: 'Emma Wilson', preferred_name: 'Emma', email: 'emma.w@example.com', phone: '(555) 678-9012',
     role: ['Cashier'], experience_level: 'Intermediate', shift_tier: 'Rush-capable',
-    min_hours: 25, max_hours: 40, min_shifts_per_week: 3, max_shifts_per_week: 5, employee_type: 'Full Time',
+    min_hours: 25, max_hours: 40, employee_type: 'Full Time',
     pairing_always_with: [], pairing_never_with: [],
   },
   {
     id: 'emp-6', created_at: '2023-09-01T09:00:00Z',
     name: 'David Park', preferred_name: 'David', email: 'david.park@example.com', phone: '(555) 789-0123',
     role: ['Packliner'], experience_level: 'Intermediate', shift_tier: 'Light shifts',
-    min_hours: 20, max_hours: 35, min_shifts_per_week: 2, max_shifts_per_week: 4, employee_type: 'Part Time',
+    min_hours: 20, max_hours: 35, employee_type: 'Part Time',
     pairing_always_with: [], pairing_never_with: [],
   },
   {
     id: 'emp-7', created_at: '2024-02-20T09:00:00Z',
     name: 'Sofia Gonzalez', preferred_name: 'Sofia', email: 'sofia.g@example.com', phone: '(555) 890-1234',
     role: ['Cook', 'Packliner'], experience_level: 'Trainee', shift_tier: 'Light shifts',
-    min_hours: 15, max_hours: 25, min_shifts_per_week: 2, max_shifts_per_week: 3, employee_type: 'Part Time',
+    min_hours: 15, max_hours: 25, employee_type: 'Part Time',
     pairing_always_with: [], pairing_never_with: [],
   },
   {
     id: 'emp-8', created_at: '2022-07-30T09:00:00Z',
     name: 'Marcus Johnson', preferred_name: 'Marcus', email: 'marcus.j@example.com', phone: '(555) 901-2345',
     role: ['Cashier'], experience_level: 'Veteran', shift_tier: 'Rush-capable',
-    min_hours: 35, max_hours: 40, min_shifts_per_week: 4, max_shifts_per_week: 5, employee_type: 'Full Time',
+    min_hours: 35, max_hours: 40, employee_type: 'Full Time',
     pairing_always_with: [], pairing_never_with: [],
   },
   {
     id: 'emp-9', created_at: '2023-05-12T09:00:00Z',
     name: 'Priya Patel', preferred_name: 'Priya', email: 'priya.p@example.com', phone: '(555) 012-3456',
     role: ['Packliner'], experience_level: 'Veteran', shift_tier: 'Rush-capable',
-    min_hours: 30, max_hours: 40, min_shifts_per_week: 4, max_shifts_per_week: 5, employee_type: 'Full Time',
+    min_hours: 30, max_hours: 40, employee_type: 'Full Time',
     pairing_always_with: [], pairing_never_with: [],
   },
   {
     id: 'emp-10', created_at: '2023-12-01T09:00:00Z',
     name: 'Tyler Brooks', preferred_name: 'Tyler', email: 'tyler.b@example.com', phone: '(555) 123-4567',
     role: ['Cook'], experience_level: 'Intermediate', shift_tier: 'Light shifts',
-    min_hours: 20, max_hours: 35, min_shifts_per_week: 2, max_shifts_per_week: 4, employee_type: 'Part Time',
+    min_hours: 20, max_hours: 35, employee_type: 'Part Time',
     pairing_always_with: [], pairing_never_with: [],
   },
 ];
@@ -133,9 +133,9 @@ export const mockTimeOffRequests: TimeOffRequest[] = [
 ];
 
 const DEFAULT_RULES: TimeRangeRule[] = [
-  { from: '10:00', to: '16:00', cashiers: 0, cooks: 0, packliners: 0 },
-  { from: '16:00', to: '18:00', cashiers: 0, cooks: 0, packliners: 0 },
-  { from: '18:00', to: '22:00', cashiers: 0, cooks: 0, packliners: 0 },
+  { from: '10:00', to: '16:00', cashiers: 1, cooks: 1, packliners: 1 },
+  { from: '16:00', to: '18:00', cashiers: 1, cooks: 1, packliners: 1 },
+  { from: '18:00', to: '22:00', cashiers: 1, cooks: 1, packliners: 1 },
 ];
 
 const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
@@ -145,7 +145,7 @@ export const mockPreferences: Preferences = {
   labor_cost_target: 28,
   max_consecutive_days: 5,
   min_availability_hours: 20,
-  max_hours_per_week: 45,
+  min_days_off_per_week: 2,
   role_requirements: Object.fromEntries(DAYS.map(d => [d, DEFAULT_RULES.map(r => ({ ...r }))])),
   operating_hours: {
     open: '10:00',
@@ -159,6 +159,16 @@ export const mockSchedule: Schedule = {
   status: 'draft',
   generated_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
   last_modified: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+  ml_metadata: {
+    preferenceOverrides: [
+      {
+        employeeName: 'Carlos Rivera',
+        suggested: 'Carlos Rivera — Cook 2024-05-20 10:00–18:00',
+        scheduled: 'Carlos Rivera — Cook 2024-05-20 14:00–22:00',
+        reason: 'Manager preference for evening availability on Mondays',
+      },
+    ],
+  },
 };
 
 export const mockShifts: Shift[] = [

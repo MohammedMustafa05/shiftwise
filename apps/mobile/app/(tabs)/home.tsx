@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useState, type ComponentProps } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { useFocusEffect, useRouter, type Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import StatCard from "../../components/StatCard";
 import TeamMemberChip from "../../components/TeamMemberChip";
@@ -8,85 +9,126 @@ import { Colors } from "../../constants/colors";
 import {
   announcements as fallbackAnnouncements,
   currentUser,
-  nextShift,
   stats as mockStats,
-  teamOnShiftToday,
 } from "../../constants/dummyData";
+import {
+  announcementIcon,
+  type AnnouncementItem,
+  type AnnouncementType,
+} from "../../lib/announcements";
 import { api } from "../../lib/api";
-import { formatDateYmd, getMondayForOffset } from "../../lib/time";
+import { formatDateYmd, formatRoleLabel, formatShiftTimeRange, getMondayForOffset, normalizeIsoDate, weekdayShortFromIso } from "../../lib/time";
+import { useScheduleRealtime } from "../../lib/useScheduleRealtime";
+
+type UpcomingShift = {
+  name: string;
+  dayShort: string;
+  date: string;
+  timeRange: string;
+  location: string;
+};
 
 export default function HomeScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [profile, setProfile] = useState(currentUser);
   const [stats, setStats] = useState(mockStats);
-  const [upcoming, setUpcoming] = useState(nextShift);
-  const [teamToday, setTeamToday] = useState(teamOnShiftToday);
-  const [announcementItems, setAnnouncementItems] = useState(fallbackAnnouncements);
+  const [upcoming, setUpcoming] = useState<UpcomingShift | null>(null);
+  const [teamToday, setTeamToday] = useState<Array<{ id: string; name: string; initials: string; role: string }>>([]);
+  const [announcementItems, setAnnouncementItems] = useState<AnnouncementItem[]>(fallbackAnnouncements);
+  const [workplaceId, setWorkplaceId] = useState<string | undefined>();
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const [me, s, announcements] = await Promise.all([
-          api.getMe(),
-          api.getStats(),
-          api.getAnnouncements(),
-        ]);
-        setProfile({
-          ...currentUser,
-          firstName: me.name.split(" ")[0],
-          email: me.email,
-          location: me.location ?? me.workplaceName,
+  const loadHome = useCallback(async () => {
+    try {
+      const [me, s, announcements] = await Promise.all([
+        api.getMe(),
+        api.getStats(),
+        api.getAnnouncements(),
+      ]);
+      setWorkplaceId(me.workplaceId);
+      setProfile({
+        ...currentUser,
+        firstName: me.name.split(" ")[0],
+        email: me.email,
+        location: me.location ?? me.workplaceName,
+      });
+      setStats({
+        shiftsThisWeek: s.shiftsThisWeek,
+        hoursThisWeek: s.hoursThisWeek,
+        daysOff: s.daysOff,
+      });
+      if (s.nextShift) {
+        const dateIso = normalizeIsoDate(s.nextShift.shiftDate);
+        setUpcoming({
+          name: formatRoleLabel(me.role),
+          dayShort: weekdayShortFromIso(dateIso),
+          date: dateIso,
+          timeRange: formatShiftTimeRange(s.nextShift.startTime, s.nextShift.endTime),
+          location: s.nextShift.location ?? me.workplaceName,
         });
-        setStats({
-          shiftsThisWeek: s.shiftsThisWeek,
-          hoursThisWeek: s.hoursThisWeek,
-          daysOff: s.daysOff,
-        });
-        if (s.nextShift) {
-          setUpcoming({
-            name: me.role,
-            dayShort: new Date(s.nextShift.shiftDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" }),
-            date: s.nextShift.shiftDate,
-            startTime: s.nextShift.startTime,
-            endTime: s.nextShift.endTime,
-            location: s.nextShift.location ?? me.workplaceName,
+      } else {
+        setUpcoming(null);
+      }
+
+      const weekStart = formatDateYmd(getMondayForOffset(0));
+      const today = formatDateYmd(new Date());
+      const team = await api.getTeamSchedule(me.workplaceId, weekStart);
+      const onToday = team.filter((t) => normalizeIsoDate(t.shiftDate) === today);
+      const unique = new Map<string, { id: string; name: string; role: string }>();
+      for (const t of onToday) {
+        if (!unique.has(t.employeeId)) {
+          unique.set(t.employeeId, {
+            id: t.employeeId,
+            name: t.employeeName,
+            role: t.role,
           });
         }
-
-        const weekStart = formatDateYmd(getMondayForOffset(0));
-        const today = formatDateYmd(new Date());
-        const team = await api.getTeamSchedule(me.workplaceId, weekStart);
-        const onToday = team.filter((t) => t.shiftDate === today);
-        const unique = new Map<string, { id: string; name: string; role: string }>();
-        for (const t of onToday) {
-          if (!unique.has(t.employeeId)) {
-            unique.set(t.employeeId, {
-              id: t.employeeId,
-              name: t.employeeName,
-              role: t.role,
-            });
-          }
-        }
-        setTeamToday(
-          [...unique.values()].map((m) => ({
-            id: m.id,
-            name: m.name,
-            initials: m.name.split(" ").map((n) => n[0]).join("").slice(0, 2),
-            role: m.role,
-          })),
-        );
-        if (announcements.length > 0) {
-          setAnnouncementItems(
-            announcements.map((a) => ({ id: a.id, title: a.title, date: a.date })),
-          );
-        }
-      } catch {
-        /* use mock data */
       }
-    })();
+      setTeamToday(
+        [...unique.values()].map((m) => ({
+          id: m.id,
+          name: m.name,
+          initials: m.name.split(" ").map((n) => n[0]).join("").slice(0, 2),
+          role: m.role,
+        })),
+      );
+      setAnnouncementItems(
+        announcements.map((a) => ({
+          id: a.id,
+          title: a.title,
+          date: a.date,
+          type: a.type as AnnouncementType,
+          route: a.route,
+          read: a.read,
+        })),
+      );
+    } catch {
+      /* use mock data */
+    }
   }, []);
 
-  const shiftSummary = `${upcoming.name} · ${upcoming.dayShort} ${upcoming.date} · ${upcoming.startTime}–${upcoming.endTime} · ${upcoming.location}`;
+  useFocusEffect(
+    useCallback(() => {
+      void loadHome();
+    }, [loadHome]),
+  );
+
+  useScheduleRealtime(workplaceId, loadHome);
+
+  const onAnnouncementPress = useCallback(
+    (item: AnnouncementItem) => {
+      void api.markAnnouncementRead(item.id).catch(() => undefined);
+      setAnnouncementItems((prev) =>
+        prev.map((a) => (a.id === item.id ? { ...a, read: true } : a)),
+      );
+      router.push(item.route as Href);
+    },
+    [router],
+  );
+
+  const shiftSummary = upcoming
+    ? `${upcoming.name} · ${upcoming.dayShort} ${upcoming.date} · ${upcoming.timeRange} · ${upcoming.location}`
+    : "No upcoming shifts scheduled";
 
   return (
     <ScrollView
@@ -98,7 +140,7 @@ export default function HomeScreen() {
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.header}>
-        <Text style={styles.wordmark}>Shiftwise</Text>
+        <Text style={styles.wordmark}>ShiftAgent</Text>
         <View style={styles.locationRow}>
           <Feather name="map-pin" size={14} color={Colors.textMuted} />
           <Text style={styles.location}>{profile.location}</Text>
@@ -131,33 +173,49 @@ export default function HomeScreen() {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Team on shift today</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.teamScroll}
-        >
-          {teamToday.map((member) => (
-            <View key={member.id} style={styles.teamChipWrap}>
-              <TeamMemberChip member={member} />
-            </View>
-          ))}
-        </ScrollView>
+        {teamToday.length === 0 ? (
+          <Text style={styles.emptyTeam}>No teammates on shift today</Text>
+        ) : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.teamScroll}
+          >
+            {teamToday.map((member) => (
+              <View key={member.id} style={styles.teamChipWrap}>
+                <TeamMemberChip member={member} />
+              </View>
+            ))}
+          </ScrollView>
+        )}
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Announcements</Text>
-        {announcementItems.map((item) => (
-          <View key={item.id} style={styles.announcementCard}>
-            <View style={styles.announcementIcon}>
-              <Feather name="bell" size={18} color={Colors.primary} />
-            </View>
-            <View style={styles.announcementBody}>
-              <Text style={styles.announcementTitle}>{item.title}</Text>
-              <Text style={styles.announcementDate}>{item.date}</Text>
-            </View>
-            <Feather name="chevron-right" size={18} color={Colors.textMuted} />
-          </View>
-        ))}
+        {announcementItems.length === 0 ? (
+          <Text style={styles.emptyAnnouncements}>No announcements yet</Text>
+        ) : (
+          announcementItems.map((item) => (
+            <Pressable
+              key={item.id}
+              style={[styles.announcementCard, item.read && styles.announcementRead]}
+              onPress={() => onAnnouncementPress(item)}
+            >
+              <View style={styles.announcementIcon}>
+                <Feather
+                  name={announcementIcon(item.type) as ComponentProps<typeof Feather>["name"]}
+                  size={18}
+                  color={Colors.primary}
+                />
+              </View>
+              <View style={styles.announcementBody}>
+                <Text style={styles.announcementTitle}>{item.title}</Text>
+                <Text style={styles.announcementDate}>{item.date}</Text>
+              </View>
+              <Feather name="chevron-right" size={18} color={Colors.textMuted} />
+            </Pressable>
+          ))
+        )}
       </View>
     </ScrollView>
   );
@@ -256,6 +314,16 @@ const styles = StyleSheet.create({
   teamChipWrap: {
     marginRight: 4,
   },
+  emptyTeam: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    paddingVertical: 4,
+  },
+  emptyAnnouncements: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    paddingVertical: 8,
+  },
   announcementCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -265,6 +333,10 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     padding: 16,
     gap: 12,
+    marginBottom: 10,
+  },
+  announcementRead: {
+    opacity: 0.72,
   },
   announcementIcon: {
     width: 40,

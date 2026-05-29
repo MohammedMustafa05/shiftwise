@@ -1,785 +1,407 @@
-import { useState, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
-  DndContext, DragOverlay, useDraggable, useDroppable,
-  PointerSensor, useSensors, useSensor,
-  type DragStartEvent, type DragEndEvent,
-} from '@dnd-kit/core';
-import {
-  ChevronLeft, ChevronRight, Sparkles, Send,
-  Lock, CheckCircle2, Clock, GripVertical,
-  Pencil, Users, Trash2, Plus, Unlock,
+  ChevronLeft,
+  ChevronRight,
+  Sparkles,
+  Calendar,
+  ArrowRight,
+  Check,
+  Brain,
+  Download,
 } from 'lucide-react';
-import { format, addDays, addWeeks, subWeeks, parseISO } from 'date-fns';
+import {
+  format,
+  addDays,
+  addWeeks,
+  subWeeks,
+  isSameDay,
+  startOfWeek,
+} from 'date-fns';
 import { mockShifts, mockSchedule } from '../lib/mockData';
-import type { Shift, Role, Employee, ScheduleFlag, Preferences } from '../lib/types';
-import { getExperienceBadgeClass, generateId } from '../lib/utils';
+import type { PreferenceOverride, Role, Schedule, Shift } from '../lib/types';
+import { getInitials, getAvatarColor } from '../lib/utils';
 import { api, isApiConfigured, loadScheduleWithEmployees } from '../lib/api';
-import { getToken } from '../lib/api/client';
+import { ApiError, getToken } from '../lib/api/client';
 import { useEmployees } from '../hooks/useEmployerApi';
+import {
+  buildAiSuggestions,
+  displayNameShort,
+  findShiftForOverride,
+  formatShiftPillLabel,
+  formatTime12FromString,
+  getShiftStyle,
+  inferShiftName,
+  parseOverrideLine,
+  shiftDurationFromStrings,
+  weekTotalColor,
+  ROLE_PILL,
+  type AISuggestionStatus,
+} from './scheduleUtils';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Theme (matches rest of web app) ─────────────────────────────────────────
 
-const HOURS = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
-const ROW_HEIGHT = 80;
-const ROLES: Role[] = ['Cashier', 'Cook', 'Packliner'];
-const ROLE_SHORT: Record<Role, string> = { Cashier: 'Cash', Cook: 'Cook', Packliner: 'Pack' };
-const ROLE_COLOR: Record<Role, string> = { Cashier: '#818CF8', Cook: '#F87171', Packliner: '#34D399' };
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface ToastItem { id: string; message: string; type: 'success' | 'error'; }
-
-interface CellDropData { type: 'cell'; dateStr: string; role: Role; hour: number; }
-interface BlockDropData { type: 'block'; shiftId: string; }
-
-type ContextMenuState =
-  | { kind: 'empty'; dateStr: string; role: Role; hour: number; x: number; y: number; above: boolean }
-  | { kind: 'occupied'; shift: Shift; x: number; y: number; above: boolean };
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function fmtH(h: number): string {
-  if (h === 12) return '12 PM';
-  return h > 12 ? `${h - 12} PM` : `${h} AM`;
-}
-
-function fmtHour(h: number): string {
-  if (h === 12) return '12 PM';
-  return h > 12 ? `${h - 12} PM` : `${h} AM`;
-}
-
-function formatGeneratedAt(iso: string): string {
-  if (!iso) return 'Not generated yet';
-  const d = parseISO(iso);
-  if (Number.isNaN(d.getTime())) return 'Not generated yet';
-  return format(d, 'MMM d, h:mm a');
-}
-
-function getBlockColors(role: Role) {
-  switch (role) {
-    case 'Cashier':   return { bg: 'rgba(129,140,248,0.30)', hoverBg: 'rgba(129,140,248,0.46)', border: '#818CF8' };
-    case 'Cook':      return { bg: 'rgba(248,113,113,0.30)', hoverBg: 'rgba(248,113,113,0.46)', border: '#F87171' };
-    case 'Packliner': return { bg: 'rgba(52,211,153,0.30)',  hoverBg: 'rgba(52,211,153,0.46)',  border: '#34D399' };
-  }
-}
-
-function getDisplayName(emp?: Employee): string {
-  return emp?.preferred_name ?? emp?.name?.split(' ')[0] ?? 'Unassigned';
-}
-
-function parseHour(t: string): number {
-  return parseInt(t.split(':')[0], 10);
-}
-
-function roleMinForDay(prefs: Preferences | null, dateStr: string, role: Role): number {
-  if (!prefs) return 0;
-  const dayName = format(parseISO(dateStr), 'EEEE').toLowerCase();
-  const bands = prefs.role_requirements[dayName] ?? prefs.role_requirements[dayName.charAt(0).toUpperCase() + dayName.slice(1)] ?? [];
-  const key = role === 'Cashier' ? 'cashiers' : role === 'Cook' ? 'cooks' : 'packliners';
-  let total = 0;
-  for (const band of bands) {
-    const from = parseHour(band.from);
-    const to = parseHour(band.to);
-    const count = band[key as keyof typeof band] as number;
-    const hours = to > from ? to - from : 24 - from + to;
-    total = Math.max(total, count * Math.max(1, hours));
-  }
-  return total;
-}
-
-function getRoleCoverage(
-  dateStr: string,
-  role: Role,
-  shifts: Shift[],
-  prefs: Preferences | null
-): 'full' | 'partial' | 'none' {
-  const rs = shifts.filter(s => s.date === dateStr && s.role === role);
-  const minRequired = roleMinForDay(prefs, dateStr, role);
-  if (!rs.length) return minRequired > 0 ? 'none' : 'none';
-  let uncovered = 0;
-  for (const h of HOURS) {
-    if (!rs.some(s => parseInt(s.start_time) <= h && parseInt(s.end_time) > h)) uncovered++;
-  }
-  if (uncovered === 0) return 'full';
-  if (minRequired > 0 && rs.length < minRequired) return 'partial';
-  return 'partial';
-}
-
-interface ShiftWithLane { shift: Shift; lane: number; maxLanes: number; }
-
-function assignLanes(roleShifts: Shift[]): ShiftWithLane[] {
-  const assigned: Array<{ shift: Shift; lane: number }> = [];
-  for (const shift of roleShifts) {
-    const s = parseInt(shift.start_time);
-    const e = parseInt(shift.end_time);
-    const occupied = new Set<number>();
-    for (const { shift: o, lane } of assigned) {
-      const os = parseInt(o.start_time), oe = parseInt(o.end_time);
-      if (s < oe && e > os) occupied.add(lane);
-    }
-    let lane = 0;
-    while (occupied.has(lane)) lane++;
-    assigned.push({ shift, lane });
-  }
-  return assigned.map(({ shift, lane }) => {
-    const s = parseInt(shift.start_time), e = parseInt(shift.end_time);
-    let max = lane;
-    for (const { shift: o, lane: ol } of assigned) {
-      const os = parseInt(o.start_time), oe = parseInt(o.end_time);
-      if (s < oe && e > os) max = Math.max(max, ol);
-    }
-    return { shift, lane, maxLanes: max + 1 };
-  });
-}
-
-function getAvailableEmployees(employees: Employee[], role: Role, dateStr: string, hour: number, shifts: Shift[], excludeShiftId?: string): Employee[] {
-  return employees.filter(emp => {
-    if (!emp.role.includes(role)) return false;
-    return !shifts.some(s =>
-      s.id !== excludeShiftId && s.employee_id === emp.id && s.date === dateStr &&
-      parseInt(s.start_time) <= hour && parseInt(s.end_time) > hour
-    );
-  });
-}
-
-// ─── Persistence (bound in Schedule component via scheduleApi ref) ───────────
-type ScheduleApi = {
-  update: (id: string, updates: Record<string, unknown>) => Promise<void>;
-  create: (shift: Record<string, unknown>) => Promise<void>;
-  remove: (id: string) => Promise<void>;
+const UI = {
+  page: '#18181B',
+  card: '#27272A',
+  cardAlt: '#18181B',
+  border: '#3F3F46',
+  text: '#FAFAFA',
+  muted: '#A1A1AA',
+  muted2: '#71717A',
+  accent: '#818CF8',
+  accentDark: '#6366F1',
+  accentSoft: 'rgba(129,140,248,0.15)',
+  todayCol: 'rgba(129,140,248,0.1)',
+  rowAlt: '#1E1E22',
+  hover: 'rgba(129,140,248,0.08)',
+  footer: '#18181B',
+  weekend: 'rgba(251,191,36,0.04)',
 };
 
-let scheduleApi: ScheduleApi = {
-  async update() { await new Promise(r => setTimeout(r, 200)); },
-  async create() { await new Promise(r => setTimeout(r, 200)); },
-  async remove() { await new Promise(r => setTimeout(r, 200)); },
-};
+const ROW_HEIGHT = 64;
+const EMP_COL_WIDTH = 220;
+const DAY_COL_MIN = 132;
 
-async function persistShiftUpdate(id: string, updates: Record<string, unknown>) {
-  return scheduleApi.update(id, updates);
-}
-async function persistShiftCreate(shift: Record<string, unknown>) {
-  return scheduleApi.create(shift);
-}
-async function persistShiftDelete(id: string) {
-  return scheduleApi.remove(id);
-}
-
-// ─── Toast ────────────────────────────────────────────────────────────────────
-
-function ToastContainer({ toasts }: { toasts: ToastItem[] }) {
-  if (!toasts.length) return null;
-  return (
-    <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 3000, display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'none' }}>
-      <style>{`@keyframes _slideInT{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}`}</style>
-      {toasts.map(t => (
-        <div key={t.id} style={{
-          padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 500,
-          backgroundColor: t.type === 'success' ? '#27272A' : 'rgba(248,113,113,0.2)',
-          border: `1px solid ${t.type === 'success' ? '#3F3F46' : 'rgba(248,113,113,0.3)'}`,
-          color: t.type === 'success' ? '#FAFAFA' : '#F87171',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-          animation: '_slideInT 0.2s ease',
-        }}>
-          {t.message}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── ShiftHourPicker ──────────────────────────────────────────────────────────
-
-function ShiftHourPicker({ value, onChange }: { value: number; onChange: (h: number) => void }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const ITEM_H = 30;
-  const idx = Math.max(0, HOURS.indexOf(value));
-
-  useLayoutEffect(() => {
-    if (containerRef.current) containerRef.current.scrollTop = idx * ITEM_H;
-  }, [idx]);
-
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  function handleScroll() {
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      if (!containerRef.current) return;
-      const i = Math.round(containerRef.current.scrollTop / ITEM_H);
-      const clamped = Math.max(0, Math.min(HOURS.length - 1, i));
-      if (HOURS[clamped] !== value) onChange(HOURS[clamped]);
-    }, 60);
-  }
-
-  return (
-    <div style={{ position: 'relative', width: 80 }}>
-      <style>{`.shp::-webkit-scrollbar{display:none}`}</style>
-      <div style={{
-        position: 'absolute', top: ITEM_H, left: 4, right: 4, height: ITEM_H,
-        backgroundColor: 'rgba(129,140,248,0.15)',
-        borderTop: '1px solid #3F3F46', borderBottom: '1px solid #3F3F46',
-        borderRadius: 4, pointerEvents: 'none', zIndex: 1,
-      }} />
-      <div
-        ref={containerRef} className="shp" onScroll={handleScroll}
-        style={{ height: ITEM_H * 3, overflowY: 'scroll', scrollbarWidth: 'none', scrollSnapType: 'y mandatory', backgroundColor: '#27272A', borderRadius: 8 }}
-      >
-        <div style={{ height: ITEM_H }} />
-        {HOURS.map(h => (
-          <div key={h} onClick={() => onChange(h)} style={{
-            height: ITEM_H, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            scrollSnapAlign: 'center', cursor: 'pointer',
-            color: h === value ? '#F1F5F9' : '#475569',
-            fontSize: h === value ? 12 : 11, fontWeight: h === value ? 600 : 400,
-          }}>
-            {fmtH(h)}
-          </div>
-        ))}
-        <div style={{ height: ITEM_H }} />
-      </div>
-    </div>
-  );
-}
-
-// ─── DroppableCell ────────────────────────────────────────────────────────────
-
-function DroppableCell({ id, data, top, height, isDragActive, onCellClick }: {
-  id: string; data: CellDropData; top: number; height: number;
-  isDragActive: boolean; onCellClick: (e: React.MouseEvent) => void;
+function ShiftPill({
+  shift,
+  onClick,
+}: {
+  shift: Shift;
+  onClick: (e: React.MouseEvent) => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id, data });
-  const [hovered, setHovered] = useState(false);
+  const style = getShiftStyle(shift.start_time, shift.end_time);
+  const rolePill = ROLE_PILL[shift.role];
   return (
-    <div
-      ref={setNodeRef}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onClick={onCellClick}
+    <button
+      type="button"
+      className="inline-flex flex-col items-center justify-center rounded-2xl font-bold transition-transform hover:scale-[1.02]"
       style={{
-        position: 'absolute', top, height, left: 0, right: 0, boxSizing: 'border-box',
-        backgroundColor: isOver
-          ? 'rgba(129,140,248,0.12)'
-          : isDragActive ? 'rgba(129,140,248,0.05)'
-          : hovered ? 'rgba(63,63,70,0.5)' : 'transparent',
-        border: isOver ? '1px dashed rgba(129,140,248,0.7)' : '1px solid transparent',
-        cursor: isDragActive ? 'copy' : 'crosshair',
-        transition: 'background-color 0.1s',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 1, pointerEvents: 'auto',
+        padding: '8px 14px',
+        backgroundColor: style.bg,
+        color: style.text,
+        whiteSpace: 'nowrap',
+        fontSize: 13,
+        lineHeight: 1.25,
+        gap: 4,
       }}
+      onClick={onClick}
     >
-      {!isDragActive && hovered && <Plus size={9} style={{ color: '#475569', opacity: 0.5 }} />}
-    </div>
-  );
-}
-
-// ─── ShiftBlock ───────────────────────────────────────────────────────────────
-
-function ShiftBlock({ shift, top, height, lane, maxLanes, isDragActive, activeId, onContextMenu }: {
-  shift: Shift; top: number; height: number; lane: number; maxLanes: number;
-  isDragActive: boolean; activeId: string | null;
-  onContextMenu: (shift: Shift, e: React.MouseEvent) => void;
-}) {
-  const { attributes: shiftAttrs, listeners: shiftListeners, setNodeRef: setShiftRef, isDragging } =
-    useDraggable({ id: `shift-${shift.id}`, data: { type: 'shift', shiftId: shift.id }, disabled: shift.is_locked });
-
-  const { setNodeRef: setDropRef, isOver: isBlockOver } = useDroppable({
-    id: `block-${shift.id}`,
-    data: { type: 'block', shiftId: shift.id } as BlockDropData,
-  });
-
-  const { attributes: chipAttrs, listeners: chipListeners, setNodeRef: setChipRef } =
-    useDraggable({ id: `chip-${shift.id}`, data: { type: 'chip', shiftId: shift.id } });
-
-  const setBlockRef = useCallback((el: HTMLElement | null) => {
-    setShiftRef(el); setDropRef(el);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const [hovered, setHovered] = useState(false);
-  const colors = getBlockColors(shift.role);
-  const displayName = getDisplayName(shift.employee);
-  const isUnassigned = !shift.employee_id;
-
-  const outerPad = 2, laneGap = maxLanes > 1 ? 2 : 0;
-  const availW = `(100% - ${outerPad * 2 + laneGap * (maxLanes - 1)}px)`;
-  const blockLeft = `calc(${outerPad}px + ${lane} * (${availW} / ${maxLanes} + ${laneGap}px))`;
-  const blockWidth = `calc(${availW} / ${maxLanes})`;
-
-  if (isDragging) {
-    return (
-      <div ref={setBlockRef} style={{
-        position: 'absolute', top: top + 3, height: Math.max(height - 6, 22),
-        left: blockLeft, width: blockWidth,
-        backgroundColor: '#27272A', border: '1px dashed #3F3F46',
-        borderRadius: 4, opacity: 0.6, zIndex: 10,
-      }} />
-    );
-  }
-
-  const dimmed = isDragActive &&
-    activeId !== `shift-${shift.id}` &&
-    activeId !== `chip-${shift.id}`;
-
-  return (
-    <div
-      ref={setBlockRef}
-      {...shiftAttrs}
-      style={{
-        position: 'absolute', top: top + 3, height: Math.max(height - 6, 22),
-        left: blockLeft, width: blockWidth,
-        backgroundColor: isBlockOver ? colors.hoverBg : hovered ? colors.hoverBg : colors.bg,
-        borderLeft: `3px solid ${colors.border}`,
-        borderRadius: 4, overflow: 'hidden',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        transition: 'background-color 0.15s, opacity 0.2s',
-        opacity: dimmed ? 0.4 : 1,
-        pointerEvents: 'auto',
-        cursor: shift.is_locked ? 'not-allowed' : 'default',
-        zIndex: 10,
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onClick={(e) => { e.stopPropagation(); onContextMenu(shift, e); }}
-    >
-      {/* Shift drag grip — absolute top-left on hover */}
-      {!shift.is_locked && (
-        <div
-          {...shiftListeners}
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: 'absolute', top: 3, left: 3,
-            cursor: 'grab',
-            opacity: hovered ? 0.7 : 0, transition: 'opacity 0.15s',
-          }}
-        >
-          <GripVertical size={8} style={{ color: colors.border }} />
-        </div>
-      )}
-
-      {/* Employee chip — name centered horizontally */}
-      <div
-        ref={setChipRef}
-        {...chipAttrs}
-        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-        onClick={(e) => e.stopPropagation()}
+      <span>{formatShiftPillLabel(shift.start_time, shift.end_time)}</span>
+      <span
+        className="text-[10px] font-semibold leading-none"
+        style={{ color: rolePill.text }}
       >
-        <span
-          {...chipListeners}
-          onPointerDown={(e) => { e.stopPropagation(); chipListeners?.onPointerDown?.(e as unknown as PointerEvent); }}
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            color: isUnassigned ? '#71717A' : '#FAFAFA',
-            fontSize: 11, fontWeight: isUnassigned ? 400 : 700,
-            fontStyle: isUnassigned ? 'italic' : 'normal',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            maxWidth: '100%',
-            padding: '0 6px',
-            textAlign: 'center',
-            display: 'block',
-            cursor: !shift.is_locked ? 'grab' : 'default',
-            letterSpacing: '-0.01em',
-          }}
-        >
-          {displayName}
-        </span>
-      </div>
-
-      {shift.is_locked && (
-        <Lock size={8} style={{ color: colors.border, position: 'absolute', top: 4, right: 4 }} />
-      )}
-    </div>
-  );
-}
-
-// ─── Drag previews ────────────────────────────────────────────────────────────
-
-function ShiftDragPreview({ shift }: { shift: Shift }) {
-  const colors = getBlockColors(shift.role);
-  return (
-    <div style={{
-      width: 88, padding: '5px 8px',
-      backgroundColor: colors.hoverBg, borderLeft: `2px solid ${colors.border}`,
-      borderRadius: 2, boxShadow: '0 8px 24px rgba(0,0,0,0.55)', cursor: 'grabbing',
-    }}>
-      <span style={{ color: '#F1F5F9', fontSize: 11, fontWeight: 600 }}>
-        {getDisplayName(shift.employee)}
+        {rolePill.label}
       </span>
-    </div>
+    </button>
   );
 }
 
-function ChipDragPreview({ shift }: { shift: Shift }) {
-  return (
-    <div style={{
-      padding: '3px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600,
-      backgroundColor: '#16161F', border: '1px solid #1E1E2A',
-      color: '#F1F5F9', boxShadow: '0 4px 16px rgba(0,0,0,0.45)', cursor: 'grabbing',
-    }}>
-      {getDisplayName(shift.employee)}
-    </div>
-  );
-}
+type PopoverState = { shift: Shift; x: number; y: number };
 
-// ─── Context Menu ─────────────────────────────────────────────────────────────
-
-type OccupiedMode = 'view' | 'edit' | 'reassign' | 'confirm-remove';
-type EmptyStep = 'pick-employee' | 'pick-time';
-
-function ContextMenuPopover({ state, shifts, employees, scheduleId, onClose, onCreateShift, onUpdateShift, onRemoveShift }: {
-  state: ContextMenuState;
-  shifts: Shift[];
-  employees: Employee[];
-  scheduleId: string;
-  onClose: () => void;
-  onCreateShift: (s: Shift) => void;
-  onUpdateShift: (id: string, updates: Partial<Shift>) => void;
-  onRemoveShift: (id: string) => void;
-}) {
+function ShiftPopover({ popover, onClose }: { popover: PopoverState; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  const { shift } = popover;
+  const style = getShiftStyle(shift.start_time, shift.end_time);
+  const hours = shiftDurationFromStrings(shift.start_time, shift.end_time);
+  const day = parseISOSafe(shift.date);
 
   useEffect(() => {
-    function down(e: MouseEvent) {
+    function handleDown(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     }
-    document.addEventListener('mousedown', down);
-    return () => document.removeEventListener('mousedown', down);
+    document.addEventListener('mousedown', handleDown);
+    return () => document.removeEventListener('mousedown', handleDown);
   }, [onClose]);
 
-  useEffect(() => {
-    function key(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
-    document.addEventListener('keydown', key);
-    return () => document.removeEventListener('keydown', key);
-  }, [onClose]);
-
-  const [emptyStep, setEmptyStep] = useState<EmptyStep>('pick-employee');
-  const [selectedEmp, setSelectedEmp] = useState<Employee | null>(null);
-  const [newStart, setNewStart] = useState(state.kind === 'empty' ? state.hour : 10);
-  const [newEnd, setNewEnd] = useState(state.kind === 'empty' ? Math.min(22, state.hour + 8) : 18);
-
-  const initShift = state.kind === 'occupied' ? state.shift : null;
-  const [occMode, setOccMode] = useState<OccupiedMode>('view');
-  const [editStart, setEditStart] = useState(initShift ? parseInt(initShift.start_time) : 10);
-  const [editEnd, setEditEnd] = useState(initShift ? parseInt(initShift.end_time) : 18);
-  const [editRole, setEditRole] = useState<Role>(initShift?.role ?? 'Cashier');
-
-  const posY = state.above
-    ? { bottom: window.innerHeight - state.y + 8 }
-    : { top: state.y + 8 };
-
-  const baseStyle: React.CSSProperties = {
-    position: 'fixed', left: Math.min(state.x, window.innerWidth - 240),
-    ...posY,
-    zIndex: 2000, backgroundColor: '#27272A', border: '1px solid #3F3F46',
-    borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.5)', minWidth: 220, overflow: 'hidden',
-  };
-
-  const row: React.CSSProperties = {
-    display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px',
-    cursor: 'pointer', fontSize: 13, color: '#FAFAFA', transition: 'background-color 0.1s',
-  };
-
-  const backBtn = (label: string, onClick: () => void) => (
-    <div style={{ padding: '8px 12px 6px', borderBottom: '1px solid #3F3F46', display: 'flex', alignItems: 'center', gap: 8 }}>
-      <button onClick={onClick} style={{ background: 'none', border: 'none', color: '#71717A', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0 }}>‹</button>
-      <span style={{ fontSize: 11, color: '#A1A1AA' }}>{label}</span>
-    </div>
-  );
-
-  if (state.kind === 'empty') {
-    const { dateStr, role, hour } = state;
-    const available = getAvailableEmployees(employees, role, dateStr, hour, shifts);
-
-    return (
-      <div ref={ref} style={baseStyle}>
-        <div style={{ padding: '9px 12px 7px', borderBottom: '1px solid #3F3F46' }}>
-          <div style={{ fontSize: 10, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#71717A' }}>
-            {format(new Date(dateStr + 'T12:00:00'), 'EEE, MMM d')} · {fmtH(hour)} · {ROLE_SHORT[role]}
-          </div>
-        </div>
-
-        {emptyStep === 'pick-employee' ? (
-          <div style={{ maxHeight: 240, overflowY: 'auto' }}>
-            {available.length === 0 ? (
-              <div style={{ padding: '20px 12px', textAlign: 'center', color: '#71717A', fontSize: 12 }}>
-                No available staff for this time
-              </div>
-            ) : available.map(emp => (
-              <div
-                key={emp.id}
-                style={row}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#1E1E2A'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
-                onClick={() => { setSelectedEmp(emp); setEmptyStep('pick-time'); }}
-              >
-                <span style={{ flex: 1, fontSize: 12, fontWeight: 500 }}>{emp.name}</span>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getExperienceBadgeClass(emp.experience_level)}`}>
-                  {emp.experience_level}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : selectedEmp && (
-          <div style={{ padding: '12px' }}>
-            {backBtn(`${selectedEmp.name.split(' ')[0]}`, () => setEmptyStep('pick-employee'))}
-            <div style={{ height: 8 }} />
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 12 }}>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 9, color: '#71717A', marginBottom: 4, letterSpacing: '0.06em' }}>START</div>
-                <ShiftHourPicker value={newStart} onChange={h => { setNewStart(h); if (h >= newEnd) setNewEnd(Math.min(22, h + 1)); }} />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', color: '#71717A', fontSize: 14 }}>–</div>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 9, color: '#71717A', marginBottom: 4, letterSpacing: '0.06em' }}>END</div>
-                <ShiftHourPicker value={newEnd} onChange={h => { setNewEnd(h); if (h <= newStart) setNewStart(Math.max(10, h - 1)); }} />
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                onClick={() => setEmptyStep('pick-employee')}
-                style={{ flex: 1, padding: '7px', borderRadius: 6, border: '1px solid #3F3F46', backgroundColor: 'transparent', color: '#71717A', fontSize: 12, cursor: 'pointer' }}
-              >Back</button>
-              <button
-                onClick={() => {
-                  const ns: Shift = {
-                    id: generateId(), schedule_id: scheduleId,
-                    employee_id: selectedEmp.id, employee: selectedEmp,
-                    role, date: dateStr,
-                    start_time: `${newStart}:00`, end_time: `${newEnd}:00`,
-                    is_locked: false,
-                    shift_type: newStart < 14 ? 'morning' : newStart < 18 ? 'afternoon' : 'evening',
-                  };
-                  onCreateShift(ns);
-                }}
-                style={{ flex: 1, padding: '7px', borderRadius: 6, border: 'none', backgroundColor: '#818CF8', color: '#FFFFFF', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-              >Confirm</button>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  const shift = state.shift;
-
-  if (occMode === 'view') {
-    const hdr = `${getDisplayName(shift.employee)} · ${shift.role} · ${fmtH(parseInt(shift.start_time))} – ${fmtH(parseInt(shift.end_time))}`;
-    const options = [
-      { label: 'Edit Shift',        icon: <Pencil size={15} style={{ color: '#71717A' }} />,                                         action: () => setOccMode('edit') },
-      { label: 'Reassign Employee', icon: <Users size={15} style={{ color: '#71717A' }} />,                                          action: () => setOccMode('reassign') },
-      { label: shift.is_locked ? 'Unlock Shift' : 'Lock Shift',
-        icon: shift.is_locked ? <Unlock size={15} style={{ color: '#71717A' }} /> : <Lock size={15} style={{ color: '#71717A' }} />,
-        action: () => onUpdateShift(shift.id, { is_locked: !shift.is_locked }),
-      },
-      { label: 'Remove Shift', icon: <Trash2 size={15} style={{ color: '#F87171' }} />, action: () => setOccMode('confirm-remove'), red: true },
-    ];
-    return (
-      <div ref={ref} style={baseStyle}>
-        <div style={{ padding: '9px 12px 7px', borderBottom: '1px solid #3F3F46' }}>
-          <div style={{ fontSize: 11, fontWeight: 500, color: '#A1A1AA' }}>{hdr}</div>
-        </div>
-        {options.map(({ label, icon, action, red }) => (
-          <div
-            key={label}
-            style={{ ...row, color: red ? '#F87171' : '#F1F5F9' }}
-            onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#3F3F46'}
-            onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
-            onClick={action}
-          >
-            {icon}{label}
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (occMode === 'edit') {
-    return (
-      <div ref={ref} style={baseStyle}>
-        {backBtn('Edit Shift', () => setOccMode('view'))}
-        <div style={{ padding: '12px' }}>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 12 }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 9, color: '#71717A', marginBottom: 4, letterSpacing: '0.06em' }}>START</div>
-              <ShiftHourPicker value={editStart} onChange={h => { setEditStart(h); if (h >= editEnd) setEditEnd(Math.min(22, h + 1)); }} />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', color: '#71717A', fontSize: 14 }}>–</div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 9, color: '#71717A', marginBottom: 4, letterSpacing: '0.06em' }}>END</div>
-              <ShiftHourPicker value={editEnd} onChange={h => { setEditEnd(h); if (h <= editStart) setEditStart(Math.max(10, h - 1)); }} />
-            </div>
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 9, color: '#71717A', marginBottom: 6, letterSpacing: '0.06em' }}>ROLE</div>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {ROLES.map(r => (
-                <button key={r} onClick={() => setEditRole(r)} style={{
-                  flex: 1, padding: '5px 2px', borderRadius: 4, fontSize: 10, cursor: 'pointer',
-                  border: `1px solid ${editRole === r ? ROLE_COLOR[r] : '#3F3F46'}`,
-                  backgroundColor: editRole === r ? `${ROLE_COLOR[r]}25` : 'transparent',
-                  color: editRole === r ? ROLE_COLOR[r] : '#71717A',
-                }}>
-                  {ROLE_SHORT[r]}
-                </button>
-              ))}
-            </div>
-          </div>
-          <button
-            onClick={() => onUpdateShift(shift.id, { start_time: `${editStart}:00`, end_time: `${editEnd}:00`, role: editRole })}
-            style={{ width: '100%', padding: '7px', borderRadius: 6, border: 'none', backgroundColor: '#818CF8', color: '#FFFFFF', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-          >Save</button>
-        </div>
-      </div>
-    );
-  }
-
-  if (occMode === 'reassign') {
-    const available = getAvailableEmployees(employees, shift.role, shift.date, parseInt(shift.start_time), shifts, shift.id);
-    return (
-      <div ref={ref} style={baseStyle}>
-        {backBtn('Reassign Employee', () => setOccMode('view'))}
-        <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-          {available.length === 0 ? (
-            <div style={{ padding: '16px', textAlign: 'center', color: '#71717A', fontSize: 12 }}>
-              No available staff for this time
-            </div>
-          ) : available.map(emp => (
-            <div
-              key={emp.id}
-              style={row}
-              onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#1E1E2A'}
-              onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
-              onClick={() => onUpdateShift(shift.id, { employee_id: emp.id, employee: emp } as unknown as Partial<Shift>)}
-            >
-              <span style={{ flex: 1, fontSize: 12 }}>{emp.name}</span>
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getExperienceBadgeClass(emp.experience_level)}`}>
-                {emp.experience_level}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const left = Math.min(popover.x, window.innerWidth - 260);
+  const top = Math.min(popover.y + 8, window.innerHeight - 200);
 
   return (
-    <div ref={ref} style={baseStyle}>
-      <div style={{ padding: '12px' }}>
-        <div style={{ fontSize: 12, color: '#A1A1AA', marginBottom: 12 }}>Remove this shift?</div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            onClick={() => setOccMode('view')}
-            style={{ flex: 1, padding: '7px', borderRadius: 6, border: '1px solid #3F3F46', backgroundColor: 'transparent', color: '#71717A', fontSize: 12, cursor: 'pointer' }}
-          >Cancel</button>
-          <button
-            onClick={() => onRemoveShift(shift.id)}
-            style={{ flex: 1, padding: '7px', borderRadius: 6, border: '1px solid rgba(248,113,113,0.3)', backgroundColor: 'rgba(248,113,113,0.2)', color: '#F87171', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-          >Yes, remove</button>
-        </div>
+    <div
+      ref={ref}
+      className="fixed z-50 w-64 rounded-xl p-4 shadow-xl"
+      style={{ left, top, backgroundColor: UI.card, border: `1px solid ${UI.border}` }}
+    >
+      <div className="text-sm font-semibold mb-1" style={{ color: UI.text }}>
+        {shift.employee?.name ?? 'Unassigned'}
       </div>
+      <div className="text-xs mb-3" style={{ color: UI.muted }}>
+        {day ? format(day, 'EEEE, MMM d') : shift.date}
+      </div>
+      <div
+        className="inline-flex px-2.5 py-1 rounded-full text-xs font-bold mb-3"
+        style={{ backgroundColor: style.bg, color: style.text }}
+      >
+        {formatShiftPillLabel(shift.start_time, shift.end_time)}
+      </div>
+      <div className="space-y-1 text-xs" style={{ color: UI.muted }}>
+        <div><span style={{ color: UI.text }}>Duration:</span> {hours} hours</div>
+        <div><span style={{ color: UI.text }}>Role:</span> {shift.role}</div>
+      </div>
+      <button
+        type="button"
+        className="mt-4 w-full py-2 rounded-lg text-xs font-semibold"
+        style={{ backgroundColor: UI.accent, color: '#FFFFFF' }}
+      >
+        Edit
+      </button>
     </div>
   );
 }
 
-// ─── CSV Export ───────────────────────────────────────────────────────────────
-
-function exportClearviewCsv(shifts: Shift[], weekDays: Date[]) {
-  const rows = [['Date', 'Employee', 'Role', 'Start', 'End']];
-  for (const day of weekDays) {
-    const ds = format(day, 'yyyy-MM-dd');
-    for (const s of shifts.filter(s => s.date === ds)) {
-      rows.push([ds, s.employee?.name ?? s.employee_id, s.role, s.start_time, s.end_time]);
-    }
+function parseISOSafe(iso: string): Date | null {
+  try {
+    const d = new Date(`${iso.slice(0, 10)}T12:00:00`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  } catch {
+    return null;
   }
-  const csv = rows.map(r => r.join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `clearview-${format(weekDays[0], 'yyyy-MM-dd')}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+}
+
+// ─── AI Suggestions ───────────────────────────────────────────────────────────
+
+type SuggestionState = PreferenceOverride & { id: string; status: AISuggestionStatus };
+
+function AISuggestionsSection({
+  suggestions,
+  onAccept,
+  onKeep,
+  onAcceptAll,
+  onRejectAll,
+}: {
+  suggestions: SuggestionState[];
+  onAccept: (id: string) => void;
+  onKeep: (id: string) => void;
+  onAcceptAll: () => void;
+  onRejectAll: () => void;
+}) {
+  const pending = suggestions.filter((s) => s.status === 'pending');
+  const accepted = suggestions.filter((s) => s.status === 'accepted').length;
+
+  if (!suggestions.some((s) => s.status === 'pending' || s.status === 'accepted')) {
+    return null;
+  }
+
+  return (
+    <div className="mt-8">
+      <div
+        className="rounded-xl p-6"
+        style={{ backgroundColor: UI.card, border: `1px solid ${UI.border}` }}
+      >
+        <div className="flex items-start justify-between gap-4 mb-5 flex-wrap">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Brain size={20} style={{ color: UI.accent }} />
+              <h2 className="text-xl font-bold" style={{ color: UI.text }}>AI Suggestions</h2>
+            </div>
+            <p className="text-sm max-w-2xl" style={{ color: UI.muted }}>
+              The AI scheduling engine made the following suggestions. Your preferences resulted in
+              the changes shown below. Review and decide whether to apply any of them.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={onAcceptAll}
+              disabled={pending.length === 0}
+              className="px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-40"
+              style={{ backgroundColor: UI.accent, color: '#FFFFFF' }}
+            >
+              Accept All
+            </button>
+            <button
+              type="button"
+              onClick={onRejectAll}
+              disabled={pending.length === 0}
+              className="px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-40"
+              style={{ backgroundColor: 'transparent', color: '#F87171', border: '1px solid rgba(248,113,113,0.35)' }}
+            >
+              Reject All
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mb-5">
+          <span className="px-3 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: UI.accentSoft, color: UI.accent }}>
+            {suggestions.length} suggestions from AI
+          </span>
+          <span className="px-3 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: 'rgba(52,211,153,0.12)', color: '#34D399' }}>
+            {accepted} accepted
+          </span>
+          <span className="px-3 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: UI.cardAlt, color: UI.muted }}>
+            {pending.length} pending
+          </span>
+        </div>
+
+        <div className="space-y-4">
+          {suggestions.map((s) => {
+            const suggestedParsed = parseOverrideLine(s.suggested);
+            const schedParsed = parseOverrideLine(s.scheduled);
+            const aiStart = suggestedParsed.start ?? '10:00';
+            const aiEnd = suggestedParsed.end ?? '16:00';
+            const schedStart = schedParsed.start ?? aiStart;
+            const schedEnd = schedParsed.end ?? aiEnd;
+            const aiHours = shiftDurationFromStrings(aiStart, aiEnd);
+            const schedHours = shiftDurationFromStrings(schedStart, schedEnd);
+            const dateLabel = suggestedParsed.date
+              ? format(parseISOSafe(suggestedParsed.date) ?? new Date(), 'EEEE MMM d')
+              : '';
+
+            if (s.status === 'accepted') {
+              return (
+                <div
+                  key={s.id}
+                  className="rounded-xl px-5 py-4 flex items-center gap-2"
+                  style={{ backgroundColor: UI.cardAlt, border: '1px solid rgba(52,211,153,0.25)' }}
+                >
+                  <Check size={16} style={{ color: '#34D399' }} />
+                  <span className="text-sm font-medium" style={{ color: '#34D399' }}>AI suggestion applied</span>
+                  <span className="text-sm" style={{ color: UI.muted }}>— {s.employeeName}{dateLabel ? `, ${dateLabel}` : ''}</span>
+                </div>
+              );
+            }
+
+            if (s.status === 'kept') {
+              return (
+                <div
+                  key={s.id}
+                  className="rounded-xl px-5 py-4"
+                  style={{ backgroundColor: UI.cardAlt, border: `1px solid ${UI.border}` }}
+                >
+                  <span className="text-sm" style={{ color: UI.muted2 }}>Preference kept</span>
+                  <span className="text-sm ml-2" style={{ color: UI.muted }}>— {s.employeeName}{dateLabel ? `, ${dateLabel}` : ''}</span>
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={s.id}
+                className="rounded-xl p-5"
+                style={{ backgroundColor: UI.cardAlt, border: `1px solid ${UI.border}`, borderLeft: `4px solid ${UI.accent}` }}
+              >
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                      style={{ backgroundColor: getAvatarColor(s.employeeName), color: '#FFFFFF' }}
+                    >
+                      {getInitials(s.employeeName)}
+                    </div>
+                    <span className="font-semibold" style={{ color: UI.text }}>{s.employeeName}</span>
+                  </div>
+                  {dateLabel && (
+                    <span className="text-sm" style={{ color: UI.muted }}>{dateLabel}</span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-[1fr_auto_1fr] gap-3 items-stretch mb-4">
+                  <div className="rounded-lg p-3" style={{ backgroundColor: UI.accentSoft }}>
+                    <div className="text-[10px] font-semibold tracking-wide mb-2" style={{ color: UI.accent }}>AI SUGGESTED</div>
+                    <div className="text-sm font-bold mb-1" style={{ color: UI.text }}>{inferShiftName(aiStart, aiEnd)}</div>
+                    <div className="text-xs" style={{ color: UI.muted }}>{formatTime12FromString(aiStart)} – {formatTime12FromString(aiEnd)}</div>
+                    <div className="text-xs mt-1" style={{ color: UI.muted2 }}>{aiHours} hours</div>
+                  </div>
+                  <div className="flex items-center">
+                    <ArrowRight size={18} style={{ color: UI.muted2 }} />
+                  </div>
+                  <div className="rounded-lg p-3" style={{ backgroundColor: 'rgba(251,191,36,0.08)' }}>
+                    <div className="text-[10px] font-semibold tracking-wide mb-2" style={{ color: '#FBBF24' }}>SCHEDULED INSTEAD</div>
+                    <div className="text-sm font-bold mb-1" style={{ color: UI.text }}>{inferShiftName(schedStart, schedEnd)}</div>
+                    <div className="text-xs" style={{ color: UI.muted }}>{formatTime12FromString(schedStart)} – {formatTime12FromString(schedEnd)}</div>
+                    <div className="text-xs mt-1" style={{ color: UI.muted2 }}>{schedHours} hours</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <p className="text-xs italic flex-1" style={{ color: UI.muted }}>
+                    Reason: {s.reason}
+                  </p>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => onAccept(s.id)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+                      style={{ backgroundColor: UI.accent, color: '#FFFFFF' }}
+                    >
+                      Accept AI Suggestion
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onKeep(s.id)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+                      style={{ backgroundColor: 'transparent', color: UI.muted, border: `1px solid ${UI.border}` }}
+                    >
+                      Keep My Preference
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── Schedule Page ────────────────────────────────────────────────────────────
 
 export default function Schedule() {
-  const { employees, workplaceId } = useEmployees();
-  const [weekStart, setWeekStart] = useState(() => {
-    const d = new Date();
-    const day = d.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    d.setDate(d.getDate() + diff);
-    d.setHours(12, 0, 0, 0);
-    return d;
-  });
+  const { employees, workplaceId, loading: employeesLoading } = useEmployees();
+  const [weekStart, setWeekStart] = useState(() =>
+    startOfWeek(new Date(), { weekStartsOn: 1 }),
+  );
+  const [schedule, setSchedule] = useState<Schedule>(
+    isApiConfigured
+      ? { id: '', week_start_date: format(new Date(), 'yyyy-MM-dd'), status: 'draft', generated_at: '', last_modified: '' }
+      : mockSchedule,
+  );
   const [shifts, setShifts] = useState<Shift[]>(isApiConfigured ? [] : mockShifts);
-  const [schedule, setSchedule] = useState(isApiConfigured
-    ? { id: '', week_start_date: format(new Date(), 'yyyy-MM-dd'), status: 'draft' as const, generated_at: '', last_modified: '' }
-    : mockSchedule);
+  const [suggestionStates, setSuggestionStates] = useState<Record<string, AISuggestionStatus>>({});
+  const [roleFilter, setRoleFilter] = useState<Role | 'all'>('all');
+  const [popover, setPopover] = useState<PopoverState | null>(null);
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const [preferences, setPreferences] = useState<Preferences | null>(null);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(isApiConfigured);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const weekDays = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
+    [weekStart],
+  );
   const weekStr = format(weekStart, 'yyyy-MM-dd');
-
-  useEffect(() => {
-    scheduleApi = {
-      async update(id, updates) {
-        if (!isApiConfigured || !schedule.id) {
-          await new Promise(r => setTimeout(r, 200));
-          return;
-        }
-        await api.updateShift(schedule.id, id, updates, employees);
-      },
-      async create(shift) {
-        if (!isApiConfigured || !schedule.id) {
-          await new Promise(r => setTimeout(r, 200));
-          return;
-        }
-        await api.createShift(schedule.id, {
-          employeeId: String(shift.employee_id),
-          shiftDate: String(shift.date),
-          startTime: String(shift.start_time),
-          endTime: String(shift.end_time),
-          role: String(shift.role),
-          isLocked: Boolean(shift.is_locked),
-        }, employees);
-      },
-      async remove(id) {
-        if (!isApiConfigured || !schedule.id) {
-          await new Promise(r => setTimeout(r, 200));
-          return;
-        }
-        await api.deleteShift(schedule.id, id);
-      },
-    };
-  }, [schedule.id, employees]);
+  const today = new Date();
 
   const loadWeek = useCallback(async () => {
-    if (!isApiConfigured || !workplaceId) return;
+    if (!isApiConfigured || !workplaceId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     try {
       const detail = await api.getScheduleByWeek(workplaceId, weekStr);
       if (detail) {
         const mapped = loadScheduleWithEmployees(detail, employees);
         setSchedule(mapped.schedule);
         setShifts(mapped.shifts);
+        setSuggestionStates({});
       } else {
         setSchedule({
           id: '',
           week_start_date: weekStr,
           status: 'draft',
-          generated_at: new Date().toISOString(),
-          last_modified: new Date().toISOString(),
+          generated_at: '',
+          last_modified: '',
         });
         setShifts([]);
+        setSuggestionStates({});
       }
     } catch {
-      /* keep local state */
+      /* keep previous */
+    } finally {
+      setLoading(false);
     }
   }, [workplaceId, weekStr, employees]);
 
@@ -787,195 +409,92 @@ export default function Schedule() {
     void loadWeek();
   }, [loadWeek]);
 
-  useEffect(() => {
-    if (!isApiConfigured || !workplaceId) return;
-    void api.getPreferences(workplaceId).then(setPreferences).catch(() => setPreferences(null));
-  }, [workplaceId]);
+  const aiSuggestions = useMemo((): SuggestionState[] => {
+    const overrides = buildAiSuggestions(
+      schedule.ml_metadata?.preferenceOverrides,
+      schedule.ml_metadata?.llmSuggestedShifts,
+      shifts,
+      employees,
+    );
+    return overrides.map((o, i) => ({
+      ...o,
+      id: `override-${i}`,
+      status: suggestionStates[`override-${i}`] ?? 'pending',
+    }));
+  }, [
+    schedule.ml_metadata?.preferenceOverrides,
+    schedule.ml_metadata?.llmSuggestedShifts,
+    shifts,
+    employees,
+    suggestionStates,
+  ]);
 
-  const activeShift = activeId
-    ? shifts.find(s => s.id === activeId.replace('shift-', '').replace('chip-', ''))
-    : null;
-
-  function addToast(message: string, type: 'success' | 'error') {
-    const id = generateId();
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 2200);
-  }
-
-  function handleDragStart({ active }: DragStartEvent) {
-    setActiveId(active.id.toString());
-    setContextMenu(null);
-  }
-
-  function handleDragEnd({ active, over }: DragEndEvent) {
-    setActiveId(null);
-    if (!over) return;
-
-    const aType = active.data.current?.type as string | undefined;
-    const oType = over.data.current?.type as string | undefined;
-
-    if (aType === 'shift' && oType === 'cell') {
-      const shiftId = active.id.toString().replace('shift-', '');
-      const shift = shifts.find(s => s.id === shiftId);
-      if (!shift) return;
-
-      const { dateStr, role, hour } = over.data.current as CellDropData;
-      const hasLocked = shifts.some(s =>
-        s.id !== shiftId && s.date === dateStr && s.role === role && s.is_locked &&
-        parseInt(s.start_time) <= hour && parseInt(s.end_time) > hour
-      );
-      if (hasLocked) { addToast('This shift is locked', 'error'); return; }
-
-      const duration = parseInt(shift.end_time) - parseInt(shift.start_time);
-      const newStart = hour, newEnd = Math.min(22, hour + duration);
-      const updates = { date: dateStr, role, start_time: `${newStart}:00`, end_time: `${newEnd}:00` };
-
-      const prev = [...shifts];
-      setShifts(s => s.map(x => x.id === shiftId ? { ...x, ...updates } : x));
-      addToast('Shift updated', 'success');
-      persistShiftUpdate(shiftId, updates).catch(() => {
-        setShifts(prev);
-        addToast('Failed to update shift — changes reverted', 'error');
-      });
+  const filteredEmployees = useMemo(() => {
+    let list = employees.length ? [...employees] : [];
+    if (roleFilter !== 'all') {
+      list = list.filter((e) => e.role.includes(roleFilter));
     }
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    return list;
+  }, [employees, roleFilter]);
 
-    if (aType === 'chip' && oType === 'block') {
-      const srcId = active.id.toString().replace('chip-', '');
-      const { shiftId: tgtId } = over.data.current as BlockDropData;
-      if (srcId === tgtId) return;
-      const src = shifts.find(s => s.id === srcId);
-      const tgt = shifts.find(s => s.id === tgtId);
-      if (!src || !tgt || src.role !== tgt.role) return;
-
-      const prev = [...shifts];
-      setShifts(s => s.map(x => {
-        if (x.id === srcId) return { ...x, employee_id: tgt.employee_id, employee: tgt.employee };
-        if (x.id === tgtId) return { ...x, employee_id: src.employee_id, employee: src.employee };
-        return x;
-      }));
-      addToast('Employees swapped', 'success');
-      Promise.all([
-        persistShiftUpdate(srcId, { employee_id: tgt.employee_id }),
-        persistShiftUpdate(tgtId, { employee_id: src.employee_id }),
-      ]).catch(() => { setShifts(prev); addToast('Failed to update shift — changes reverted', 'error'); });
+  const shiftsByEmployeeDay = useMemo(() => {
+    const map = new Map<string, Shift[]>();
+    for (const s of shifts) {
+      const key = `${s.employee_id}-${s.date}`;
+      const arr = map.get(key) ?? [];
+      arr.push(s);
+      map.set(key, arr);
     }
+    return map;
+  }, [shifts]);
 
-    if (aType === 'chip' && oType === 'cell') {
-      const srcId = active.id.toString().replace('chip-', '');
-      const src = shifts.find(s => s.id === srcId);
-      if (!src) return;
-      const { dateStr, role, hour } = over.data.current as CellDropData;
-      const ns: Shift = {
-        id: generateId(), schedule_id: schedule.id,
-        employee_id: src.employee_id, employee: src.employee,
-        role, date: dateStr,
-        start_time: `${hour}:00`, end_time: `${Math.min(22, hour + 8)}:00`,
-        is_locked: false,
-        shift_type: hour < 14 ? 'morning' : hour < 18 ? 'afternoon' : 'evening',
-      };
-      const prev = [...shifts];
-      setShifts(s => [...s.map(x => x.id === srcId ? { ...x, employee_id: '', employee: undefined } : x), ns]);
-      addToast('Employee reassigned', 'success');
-      const { employee: _e, ...nsData } = ns;
-      persistShiftCreate(nsData as unknown as Record<string, unknown>).catch(() => {
-        setShifts(prev); addToast('Failed to update shift — changes reverted', 'error');
-      });
+  const dayTotals = useMemo(() =>
+    weekDays.map((day) => {
+      const ds = format(day, 'yyyy-MM-dd');
+      return shifts
+        .filter((s) => s.date === ds)
+        .reduce((sum, s) => sum + shiftDurationFromStrings(s.start_time, s.end_time), 0);
+    }),
+  [shifts, weekDays]);
+
+  const employeeTotals = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const emp of employees) {
+      const total = shifts
+        .filter((s) => s.employee_id === emp.id)
+        .reduce((sum, s) => sum + shiftDurationFromStrings(s.start_time, s.end_time), 0);
+      map.set(emp.id, total);
     }
-  }
+    return map;
+  }, [shifts, employees]);
 
-  function openContextMenu(shift: Shift | null, dateStr: string, role: Role, hour: number, e: React.MouseEvent) {
-    const x = Math.min(e.clientX, window.innerWidth - 250);
-    const y = e.clientY;
-    const above = y > window.innerHeight * 0.65;
-    if (shift) {
-      setContextMenu({ kind: 'occupied', shift, x, y, above });
-    } else {
-      setContextMenu({ kind: 'empty', dateStr, role, hour, x, y, above });
-    }
-  }
-
-  function handleUpdateShift(id: string, updates: Partial<Shift>) {
-    const prev = [...shifts];
-    setShifts(s => s.map(x => x.id === id ? { ...x, ...updates } : x));
-    setContextMenu(null);
-    addToast('Shift updated', 'success');
-    const { employee: _e, ...dbUpdates } = updates as Shift;
-    persistShiftUpdate(id, dbUpdates as unknown as Record<string, unknown>).catch(() => {
-      setShifts(prev); addToast('Failed to update shift — changes reverted', 'error');
-    });
-  }
-
-  function handleCreateShift(ns: Shift) {
-    const prev = [...shifts];
-    setShifts(s => [...s, ns]);
-    setContextMenu(null);
-    addToast('Shift added', 'success');
-    const { employee: _e, ...data } = ns;
-    persistShiftCreate(data as unknown as Record<string, unknown>).catch(() => {
-      setShifts(prev); addToast('Failed to add shift — changes reverted', 'error');
-    });
-  }
-
-  function handleRemoveShift(id: string) {
-    const prev = [...shifts];
-    setShifts(s => s.filter(x => x.id !== id));
-    setContextMenu(null);
-    addToast('Shift removed', 'success');
-    persistShiftDelete(id).catch(() => {
-      setShifts(prev); addToast('Failed to update shift — changes reverted', 'error');
-    });
-  }
+  const grandTotal = useMemo(
+    () => shifts.reduce((sum, s) => sum + shiftDurationFromStrings(s.start_time, s.end_time), 0),
+    [shifts],
+  );
 
   async function handleGenerate() {
     setGenerating(true);
+    setGenerateError(null);
     try {
       if (isApiConfigured) {
         const result = await api.generateSchedule(weekStr);
-        setSchedule(s => ({
-          ...s,
-          id: result.scheduleId,
-          status: 'draft',
-          week_start_date: weekStr,
-          generated_at: new Date().toISOString(),
-          ml_metadata: {
-            workersNeeded: result.workersNeeded,
-            flags: result.flags ?? [],
-            engineVersion: '2.0.0',
-          },
-        }));
-        await loadWeek();
-        if (result.flags?.length) {
-          addToast(`Generated with ${result.flags.length} alert(s)`, 'error');
-        } else {
-          addToast('Schedule generated', 'success');
+        if (result.scheduleId) {
+          await api.publishSchedule(result.scheduleId);
         }
+        await loadWeek();
       } else {
-        await new Promise(r => setTimeout(r, 2200));
-        setSchedule(s => ({ ...s, status: 'draft', generated_at: new Date().toISOString() }));
+        setSchedule((s) => ({ ...s, status: 'draft', generated_at: new Date().toISOString() }));
       }
-    } catch {
-      addToast('Failed to generate schedule', 'error');
+    } catch (e) {
+      setGenerateError(e instanceof ApiError ? e.message : 'Failed to generate schedule');
     } finally {
       setGenerating(false);
     }
   }
 
-  async function handlePublish() {
-    if (isApiConfigured && schedule.id) {
-      try {
-        await api.publishSchedule(schedule.id);
-        setSchedule(s => ({ ...s, status: 'published' }));
-        return;
-      } catch {
-        addToast('Failed to publish schedule', 'error');
-        return;
-      }
-    }
-    setSchedule(s => ({ ...s, status: 'published' }));
-  }
-
-  async function handlePublishAndExport() {
-    await handlePublish();
+  async function handleExport() {
     if (isApiConfigured && schedule.id) {
       const token = getToken();
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/schedules/${schedule.id}/export/clearview`, {
@@ -989,269 +508,368 @@ export default function Schedule() {
         a.download = `clearview-${weekStr}.csv`;
         a.click();
         URL.revokeObjectURL(url);
+        return;
       }
-    } else {
-      exportClearviewCsv(shifts, weekDays);
+    }
+    const rows = [['Date', 'Employee', 'Role', 'Start', 'End']];
+    for (const s of shifts) {
+      rows.push([s.date, s.employee?.name ?? '', s.role, s.start_time, s.end_time]);
+    }
+    const blob = new Blob([rows.map((r) => r.join(',')).join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `schedule-${weekStr}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function applyAiSuggestion(id: string) {
+    const suggestion = aiSuggestions.find((s) => s.id === id);
+    if (!suggestion || !schedule.id) return;
+
+    const scheduled = parseOverrideLine(suggestion.scheduled);
+    const suggested = parseOverrideLine(suggestion.suggested);
+    const shift = findShiftForOverride(shifts, scheduled);
+
+    if (shift && suggested.start && suggested.end && isApiConfigured) {
+      const updates = { start_time: `${suggested.start}:00`, end_time: `${suggested.end}:00` };
+      setShifts((prev) =>
+        prev.map((s) => (s.id === shift.id ? { ...s, ...updates } : s)),
+      );
+      try {
+        await api.updateShift(schedule.id, shift.id, updates, employees);
+      } catch {
+        await loadWeek();
+        return;
+      }
+    }
+
+    setSuggestionStates((prev) => ({ ...prev, [id]: 'accepted' }));
+  }
+
+  function keepPreference(id: string) {
+    setSuggestionStates((prev) => ({ ...prev, [id]: 'kept' }));
+  }
+
+  function acceptAllAi() {
+    for (const s of aiSuggestions.filter((x) => x.status === 'pending')) {
+      void applyAiSuggestion(s.id);
     }
   }
 
-  const isDragActive = activeId !== null;
-  const gridCols = '80px repeat(21, 1fr)';
+  function rejectAllAi() {
+    setSuggestionStates((prev) => {
+      const next = { ...prev };
+      for (const s of aiSuggestions.filter((x) => x.status === 'pending')) {
+        next[s.id] = 'kept';
+      }
+      return next;
+    });
+  }
+
+  const pageLoading = loading || employeesLoading;
+  const showGrid = Boolean(schedule.id) && !pageLoading;
+  const showEmpty = !pageLoading && !schedule.id;
+  const showAiSection =
+    showGrid &&
+    aiSuggestions.some((s) => s.status === 'pending' || s.status === 'accepted');
 
   return (
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="p-8">
-        {/* Header */}
-        {schedule.ml_metadata?.flags && schedule.ml_metadata.flags.length > 0 && (
-          <div
-            className="mb-4 rounded-lg px-4 py-3 text-sm"
-            style={{ backgroundColor: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.35)', color: '#FCA5A5' }}
+    <div className="p-8">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold" style={{ color: UI.text }}>Schedule</h1>
+        <p className="text-sm mt-0.5" style={{ color: UI.muted }}>
+          Manage and publish your weekly shift schedule
+        </p>
+      </div>
+
+      {generateError && (
+        <div
+          className="mb-4 rounded-lg px-4 py-3 text-sm"
+          style={{ backgroundColor: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.35)', color: '#FCA5A5' }}
+        >
+          {generateError}
+        </div>
+      )}
+
+      {/* Toolbar */}
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-4">
+        <div
+          className="flex items-center gap-1 rounded-xl p-1"
+          style={{ backgroundColor: UI.card, border: `1px solid ${UI.border}` }}
+        >
+          <button
+            type="button"
+            onClick={() => setWeekStart((w) => subWeeks(w, 1))}
+            className="p-2 rounded-lg transition-colors"
+            style={{ color: UI.accent }}
           >
-            <div className="font-semibold mb-1">Scheduling alerts</div>
-            <ul className="list-disc list-inside space-y-0.5" style={{ color: '#FECACA' }}>
-              {schedule.ml_metadata.flags.slice(0, 8).map((f: ScheduleFlag, i: number) => (
-                <li key={i}>
-                  {f.message ?? f.type}
-                  {f.date ? ` (${f.date}${f.hour != null ? ` @ ${f.hour}:00` : ''})` : ''}
-                </li>
-              ))}
-              {schedule.ml_metadata.flags.length > 8 && (
-                <li>…and {schedule.ml_metadata.flags.length -  8} more</li>
-              )}
-            </ul>
-          </div>
-        )}
+            <ChevronLeft size={18} />
+          </button>
+          <span className="text-sm font-semibold px-3 min-w-[160px] text-center" style={{ color: UI.text }}>
+            {format(weekStart, 'MMM d')} – {format(addDays(weekStart, 6), 'MMM d')}
+          </span>
+          <button
+            type="button"
+            onClick={() => setWeekStart((w) => addWeeks(w, 1))}
+            className="p-2 rounded-lg transition-colors"
+            style={{ color: UI.accent }}
+          >
+            <ChevronRight size={18} />
+          </button>
+        </div>
 
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-semibold" style={{ color: '#FAFAFA' }}>Schedule</h1>
-            <p className="text-sm mt-0.5" style={{ color: '#A1A1AA' }}>Manage and publish your weekly shift schedule</p>
-            {schedule.ml_metadata?.workersNeeded?.byDay?.length ? (
-              <p className="text-xs mt-1" style={{ color: '#71717A' }}>
-                Demand from sales
-                {typeof schedule.ml_metadata.labourCostPct === 'number'
-                  ? ` · ${Math.round(schedule.ml_metadata.labourCostPct * 100)}% labour target`
-                  : ''}
-                {schedule.ml_metadata.salesReferenceWeekStart
-                  ? ` · ref week ${schedule.ml_metadata.salesReferenceWeekStart}`
-                  : ''}
-              </p>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-2">
-            {schedule.status === 'draft' && (
-              <button
-                onClick={handlePublishAndExport}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
-                style={{ backgroundColor: '#818CF8', color: '#FFFFFF' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#6366F1'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#818CF8'}
-              >
-                <Send size={15} />Publish &amp; Export to Clearview
-              </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value as Role | 'all')}
+            className="px-3 py-2 rounded-lg text-sm font-medium outline-none cursor-pointer"
+            style={{ backgroundColor: UI.card, color: UI.text, border: `1px solid ${UI.border}` }}
+          >
+            <option value="all">All Roles</option>
+            <option value="Cook">Cook</option>
+            <option value="Cashier">Cashier</option>
+            <option value="Packliner">Packer</option>
+          </select>
+          <button
+            type="button"
+            onClick={() => void handleExport()}
+            disabled={!showGrid}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-40"
+            style={{ backgroundColor: 'transparent', color: UI.text, border: `1px solid ${UI.border}` }}
+          >
+            <Download size={15} />
+            Export
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleGenerate()}
+            disabled={generating}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-70"
+            style={{ backgroundColor: UI.accent, color: '#FFFFFF' }}
+          >
+            {generating ? (
+              <>
+                <span className="w-4 h-4 border-2 rounded-full animate-spin" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: '#FFFFFF' }} />
+                Generating…
+              </>
+            ) : (
+              <>
+                <Sparkles size={16} />
+                Generate Schedule
+              </>
             )}
-            <button
-              onClick={handleGenerate}
-              disabled={generating}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
-              style={{ backgroundColor: '#818CF8', color: '#FFFFFF', opacity: generating ? 0.75 : 1 }}
-              onMouseEnter={e => { if (!generating) (e.currentTarget as HTMLElement).style.backgroundColor = '#6366F1'; }}
-              onMouseLeave={e => { if (!generating) (e.currentTarget as HTMLElement).style.backgroundColor = '#818CF8'; }}
-            >
-              {generating
-                ? <><span className="w-3.5 h-3.5 border-2 rounded-full animate-spin" style={{ borderColor: 'rgba(255,255,255,0.25)', borderTopColor: '#FFFFFF' }} />Generating smart schedule...</>
-                : <><Sparkles size={15} />Generate Schedule</>}
-            </button>
-          </div>
-        </div>
-
-        {/* Week nav + status */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 rounded-lg p-1" style={{ backgroundColor: '#27272A', border: '1px solid #3F3F46' }}>
-              <button
-                onClick={() => setWeekStart(w => subWeeks(w, 1))}
-                className="p-1.5 rounded-md transition-colors" style={{ color: '#A1A1AA' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#3F3F46'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
-              ><ChevronLeft size={16} /></button>
-              <span className="text-sm font-medium px-2" style={{ color: '#FAFAFA', minWidth: 180, textAlign: 'center' }}>
-                {format(weekStart, 'MMM d')} – {format(addDays(weekStart, 6), 'MMM d, yyyy')}
-              </span>
-              <button
-                onClick={() => setWeekStart(w => addWeeks(w, 1))}
-                className="p-1.5 rounded-md transition-colors" style={{ color: '#A1A1AA' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#3F3F46'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'}
-              ><ChevronRight size={16} /></button>
-            </div>
-            <div className="flex items-center gap-2">
-              <span
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-                style={{ backgroundColor: 'rgba(129,140,248,0.15)', color: '#818CF8', border: '1px solid rgba(129,140,248,0.25)' }}
-              >
-                {schedule.status === 'published' ? <CheckCircle2 size={11} /> : <Clock size={11} />}
-                {schedule.status === 'published' ? 'Published' : 'Draft'}
-              </span>
-              <span className="text-xs" style={{ color: '#71717A' }}>
-                Last generated: {formatGeneratedAt(schedule.generated_at)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Grid */}
-        <div className="rounded-xl overflow-hidden" style={{ backgroundColor: '#27272A', border: '1px solid #3F3F46', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
-
-          {/* Header row 1: Day names */}
-          <div style={{ display: 'grid', gridTemplateColumns: gridCols, borderBottom: '1px solid #3F3F46' }}>
-            <div style={{ borderRight: '1px solid #3F3F46' }} />
-            {weekDays.map((day, i) => {
-              const isToday = format(day, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
-              return (
-                <div key={i} style={{ gridColumn: 'span 3', textAlign: 'center', padding: '8px 4px 6px', borderRight: i < 6 ? '1px solid rgba(63,63,70,0.8)' : undefined }}>
-                  <div style={{ fontSize: 10, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#71717A' }}>
-                    {format(day, 'EEE')}
-                  </div>
-                  <div style={{
-                    fontSize: 13, fontWeight: 600, marginTop: 2,
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    width: 24, height: 24, borderRadius: '50%',
-                    color: isToday ? '#FFFFFF' : '#FAFAFA',
-                    backgroundColor: isToday ? '#818CF8' : 'transparent',
-                  }}>
-                    {format(day, 'd')}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Header row 2: Role sub-column labels + coverage dots */}
-          <div style={{ display: 'grid', gridTemplateColumns: gridCols, borderBottom: '1px solid #3F3F46' }}>
-            <div style={{ borderRight: '1px solid #3F3F46' }} />
-            {weekDays.map((day, dayIdx) => {
-              const dateStr = format(day, 'yyyy-MM-dd');
-              return ROLES.map((role, roleIdx) => {
-                const cov = getRoleCoverage(dateStr, role, shifts, preferences);
-                const isLast = roleIdx === 2;
-                const br = isLast && dayIdx < 6 ? '1px solid rgba(63,63,70,0.8)' : !isLast ? '1px solid #3F3F46' : undefined;
-                return (
-                  <div key={`rh-${dayIdx}-${roleIdx}`} style={{ padding: '4px 2px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, borderRight: br }}>
-                    <span style={{ fontSize: 9, fontWeight: 500, color: ROLE_COLOR[role] }}>{ROLE_SHORT[role]}</span>
-                    {cov === 'full'    && <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: '#34D399' }} />}
-                    {cov === 'partial' && <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: '#FBBF24' }} />}
-                    {cov === 'none'    && <div style={{ fontSize: 7, fontWeight: 700, padding: '1px 3px', borderRadius: 2, backgroundColor: 'rgba(248,113,113,0.2)', color: '#F87171' }}>!</div>}
-                  </div>
-                );
-              });
-            })}
-          </div>
-
-          {/* Grid body */}
-          <div style={{ position: 'relative', height: HOURS.length * ROW_HEIGHT }}>
-
-            {/* Layer 0: Background grid lines */}
-            <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
-              {HOURS.map((hour, rowIdx) => (
-                <div key={hour} style={{ display: 'grid', gridTemplateColumns: gridCols, height: ROW_HEIGHT, borderBottom: rowIdx < HOURS.length - 1 ? '1px solid #3F3F46' : undefined }}>
-                  <div style={{ borderRight: '1px solid #3F3F46', display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', padding: '8px 10px 0 0' }}>
-                    <span style={{ color: '#71717A', fontSize: 11, fontWeight: 500 }}>{fmtHour(hour)}</span>
-                  </div>
-                  {weekDays.map((_, dayIdx) =>
-                    ROLES.map((_r, roleIdx) => {
-                      const isLast = roleIdx === 2;
-                      const br = isLast && dayIdx < 6 ? '1px solid rgba(63,63,70,0.8)' : !isLast ? '1px solid #3F3F46' : undefined;
-                      return <div key={`bg-${dayIdx}-${roleIdx}`} style={{ borderRight: br }} />;
-                    })
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Layer 5: Droppable cells */}
-            <div style={{ position: 'absolute', top: 0, left: 80, right: 0, bottom: 0, zIndex: 5, pointerEvents: 'none', display: 'grid', gridTemplateColumns: 'repeat(21, 1fr)' }}>
-              {weekDays.map((day, dayIdx) => {
-                const dateStr = format(day, 'yyyy-MM-dd');
-                return ROLES.map((role, roleIdx) => (
-                  <div key={`dc-${dayIdx}-${roleIdx}`} style={{ position: 'relative', height: '100%', pointerEvents: 'none' }}>
-                    {getRoleCoverage(dateStr, role, shifts, preferences) === 'none' && (
-                      <div style={{
-                        position: 'absolute', top: 0, bottom: 0, left: '50%', transform: 'translateX(-50%)',
-                        width: 1, backgroundImage: 'repeating-linear-gradient(to bottom,rgba(248,113,113,0.45) 0,rgba(248,113,113,0.45) 4px,transparent 4px,transparent 8px)',
-                        zIndex: 0, pointerEvents: 'none',
-                      }} />
-                    )}
-                    {HOURS.map((hour, hIdx) => (
-                      <DroppableCell
-                        key={`${dateStr}-${role}-${hour}`}
-                        id={`cell-${dateStr}-${role}-${hour}`}
-                        data={{ type: 'cell', dateStr, role, hour }}
-                        top={hIdx * ROW_HEIGHT}
-                        height={ROW_HEIGHT}
-                        isDragActive={isDragActive}
-                        onCellClick={(e) => openContextMenu(null, dateStr, role, hour, e)}
-                      />
-                    ))}
-                  </div>
-                ));
-              })}
-            </div>
-
-            {/* Layer 10: Shift blocks */}
-            <div style={{ position: 'absolute', top: 0, left: 80, right: 0, bottom: 0, zIndex: 10, pointerEvents: 'none', display: 'grid', gridTemplateColumns: 'repeat(21, 1fr)' }}>
-              {weekDays.map((day, dayIdx) => {
-                const dateStr = format(day, 'yyyy-MM-dd');
-                return ROLES.map((role, roleIdx) => {
-                  const roleShifts = shifts.filter(s => s.date === dateStr && s.role === role);
-                  const laned = assignLanes(roleShifts);
-                  return (
-                    <div key={`sl-${dayIdx}-${roleIdx}`} style={{ position: 'relative', height: '100%', pointerEvents: 'none' }}>
-                      {laned.map(({ shift, lane, maxLanes }) => {
-                        const startH = parseInt(shift.start_time), endH = parseInt(shift.end_time);
-                        return (
-                          <ShiftBlock
-                            key={shift.id}
-                            shift={shift}
-                            top={(startH - 10) * ROW_HEIGHT}
-                            height={(endH - startH) * ROW_HEIGHT}
-                            lane={lane}
-                            maxLanes={maxLanes}
-                            isDragActive={isDragActive}
-                            activeId={activeId}
-                            onContextMenu={(s, e) => openContextMenu(s, dateStr, role, startH, e)}
-                          />
-                        );
-                      })}
-                    </div>
-                  );
-                });
-              })}
-            </div>
-
-          </div>
+          </button>
         </div>
       </div>
 
-      <DragOverlay dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.18,0.67,0.6,1.22)' }}>
-        {activeId?.startsWith('shift-') && activeShift ? <ShiftDragPreview shift={activeShift} /> : null}
-        {activeId?.startsWith('chip-') && activeShift ? <ChipDragPreview shift={activeShift} /> : null}
-      </DragOverlay>
+      {/* Grid */}
+      <div
+        className="rounded-xl overflow-hidden"
+        style={{ backgroundColor: UI.card, border: `1px solid ${UI.border}`, boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }}
+      >
+        {pageLoading ? (
+          <div className="flex items-center justify-center py-24" style={{ color: UI.muted }}>
+            Loading schedule…
+          </div>
+        ) : showEmpty ? (
+          <div className="flex flex-col items-center justify-center py-24 px-6">
+            <Calendar size={48} style={{ color: UI.muted2 }} />
+            <p className="text-base font-medium mt-4" style={{ color: UI.muted }}>
+              No schedule generated yet for this week
+            </p>
+            <button
+              type="button"
+              onClick={() => void handleGenerate()}
+              className="mt-4 flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold"
+              style={{ backgroundColor: UI.accent, color: '#FFFFFF' }}
+            >
+              <Sparkles size={16} />
+              Generate Schedule
+            </button>
+          </div>
+        ) : (
+          <div className="overflow-x-auto max-h-[calc(100vh-240px)] overflow-y-auto">
+            <table className="w-full border-collapse min-w-[1280px]" style={{ tableLayout: 'fixed' }}>
+              <thead>
+                <tr>
+                  <th
+                    className="sticky left-0 z-30 text-left font-bold px-4 py-4"
+                    style={{
+                      width: EMP_COL_WIDTH,
+                      minWidth: EMP_COL_WIDTH,
+                      fontSize: 14,
+                      top: 0,
+                      backgroundColor: UI.cardAlt,
+                      color: UI.text,
+                      borderBottom: `1px solid ${UI.border}`,
+                    }}
+                  >
+                    Employee
+                  </th>
+                  {weekDays.map((day, i) => {
+                    const isToday = isSameDay(day, today);
+                    const isWeekend = i >= 4;
+                    let headerBg = UI.card;
+                    if (isToday) headerBg = UI.accent;
+                    else if (isWeekend) headerBg = UI.weekend as unknown as string;
 
-      {contextMenu && (
-        <ContextMenuPopover
-          state={contextMenu}
-          shifts={shifts}
-          employees={employees}
-          scheduleId={schedule.id || 'local'}
-          onClose={() => setContextMenu(null)}
-          onCreateShift={handleCreateShift}
-          onUpdateShift={handleUpdateShift}
-          onRemoveShift={handleRemoveShift}
+                    return (
+                      <th
+                        key={i}
+                        className="sticky z-20 px-2 py-4 text-center"
+                        style={{
+                          minWidth: DAY_COL_MIN,
+                          top: 0,
+                          backgroundColor: headerBg,
+                          borderBottom: `1px solid ${UI.border}`,
+                          borderTopLeftRadius: isToday ? 8 : 0,
+                          borderTopRightRadius: isToday ? 8 : 0,
+                        }}
+                      >
+                        <div className="text-base font-bold" style={{ color: isToday ? '#FFFFFF' : UI.text }}>
+                          {format(day, 'MMM d')}
+                        </div>
+                        <div className="text-xs mt-1" style={{ color: isToday ? 'rgba(255,255,255,0.85)' : UI.muted2 }}>
+                          {format(day, 'EEEE')}
+                        </div>
+                      </th>
+                    );
+                  })}
+                  <th
+                    className="sticky z-20 px-3 py-4 text-center font-bold"
+                    style={{
+                      minWidth: 100,
+                      fontSize: 14,
+                      top: 0,
+                      backgroundColor: UI.cardAlt,
+                      color: UI.text,
+                      borderBottom: `1px solid ${UI.border}`,
+                    }}
+                  >
+                    Week Total
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredEmployees.map((emp, rowIdx) => {
+                  const rowBg = rowIdx % 2 === 0 ? UI.card : UI.rowAlt;
+                  const isHovered = hoveredRow === emp.id;
+                  const empTotal = employeeTotals.get(emp.id) ?? 0;
+                  const cellBg = isHovered ? UI.hover : rowBg;
+
+                  return (
+                    <tr
+                      key={emp.id}
+                      onMouseEnter={() => setHoveredRow(emp.id)}
+                      onMouseLeave={() => setHoveredRow(null)}
+                      style={{
+                        height: ROW_HEIGHT,
+                        backgroundColor: cellBg,
+                        borderBottom: `1px solid ${UI.border}`,
+                        cursor: 'pointer',
+                        transition: 'background-color 0.12s',
+                      }}
+                    >
+                      <td
+                        className="sticky left-0 z-10 px-4 align-middle"
+                        style={{
+                          width: EMP_COL_WIDTH,
+                          minWidth: EMP_COL_WIDTH,
+                          backgroundColor: isHovered ? UI.hover : rowBg,
+                          borderRight: `1px solid ${UI.border}`,
+                        }}
+                      >
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-bold" style={{ color: UI.text }}>
+                            {displayNameShort(emp.name)}
+                          </span>
+                        </div>
+                      </td>
+
+                      {weekDays.map((day, dayIndex) => {
+                        const dateStr = format(day, 'yyyy-MM-dd');
+                        const dayShifts = shiftsByEmployeeDay.get(`${emp.id}-${dateStr}`) ?? [];
+                        const isToday = isSameDay(day, today);
+                        const bg = isToday ? UI.todayCol : isHovered ? UI.hover : rowBg;
+
+                        return (
+                          <td
+                            key={dayIndex}
+                            className="text-center align-middle px-1.5 py-2"
+                            style={{ backgroundColor: bg, minWidth: DAY_COL_MIN }}
+                          >
+                            <div className="flex flex-col items-center gap-1.5">
+                              {dayShifts.map((shift) => (
+                                <ShiftPill
+                                  key={shift.id}
+                                  shift={shift}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPopover({ shift, x: e.clientX, y: e.clientY });
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          </td>
+                        );
+                      })}
+
+                      <td
+                        className="text-center align-middle font-bold"
+                        style={{
+                          fontSize: 14,
+                          color: weekTotalColor(empTotal),
+                          backgroundColor: isHovered ? UI.hover : rowBg,
+                        }}
+                      >
+                        {Math.round(empTotal * 10) / 10} hrs
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ backgroundColor: UI.footer }}>
+                  <td
+                    className="sticky left-0 z-10 px-4 py-3.5 font-bold"
+                    style={{
+                      backgroundColor: UI.footer,
+                      color: UI.text,
+                      width: EMP_COL_WIDTH,
+                      minWidth: EMP_COL_WIDTH,
+                      fontSize: 14,
+                    }}
+                  >
+                    Total Hours
+                  </td>
+                  {dayTotals.map((total, i) => (
+                    <td key={i} className="text-center py-3.5 font-bold" style={{ color: UI.text, fontSize: 14 }}>
+                      {Math.round(total)} hrs
+                    </td>
+                  ))}
+                  <td className="text-center py-3.5 font-bold" style={{ color: UI.text, fontSize: 14 }}>
+                    {Math.round(grandTotal)} hrs
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {showAiSection && (
+        <AISuggestionsSection
+          suggestions={aiSuggestions}
+          onAccept={(id) => void applyAiSuggestion(id)}
+          onKeep={keepPreference}
+          onAcceptAll={() => void acceptAllAi()}
+          onRejectAll={rejectAllAi}
         />
       )}
 
-      <ToastContainer toasts={toasts} />
-    </DndContext>
+      {popover && <ShiftPopover popover={popover} onClose={() => setPopover(null)} />}
+    </div>
   );
 }

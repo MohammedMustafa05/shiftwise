@@ -1,4 +1,4 @@
-import type { HourlySalesRow } from "@shiftwise/shared";
+import type { HourlySalesRow } from "@shiftagent/shared";
 import { config } from "../../config.js";
 import { httpError } from "../../middleware/errorHandler.js";
 import type { ClearviewTokens, IClearviewClient } from "./types.js";

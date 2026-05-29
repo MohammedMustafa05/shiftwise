@@ -5,8 +5,8 @@ import { defaultDropChartCsvPath, importSalesCsv } from "../services/csvImportSe
 
 /**
  * Import apps/ml-engine/drop_chart_all_days.csv into hourly_sales_data.
- * Usage: npm run db:import-sales -w @shiftwise/api
- *        npm run db:import-sales -w @shiftwise/api -- <workplace-id>
+ * Usage: npm run db:import-sales -w @shiftagent/api
+ *        npm run db:import-sales -w @shiftagent/api -- <workplace-id>
  */
 async function main() {
   assertDatabaseConfigured();

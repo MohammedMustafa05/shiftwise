@@ -1,5 +1,5 @@
 import { parse } from "csv-parse/sync";
-import type { HourlySalesRow } from "@shiftwise/shared";
+import type { HourlySalesRow } from "@shiftagent/shared";
 import { query } from "../db/pool.js";
 import {
   isDropChartCsv,

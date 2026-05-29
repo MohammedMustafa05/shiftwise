@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   TrendingUp, TrendingDown,
   Sparkles, ClipboardCheck, UserPlus, ArrowRight, CheckCircle2,
-  CalendarDays, Edit3, Bell, Zap,
+  CalendarDays, Edit3, Bell,
 } from 'lucide-react';
 import { format, addDays, parseISO, startOfWeek } from 'date-fns';
 import { mockShifts, mockActivity, mockAvailabilityRequests, mockTimeOffRequests } from '../lib/mockData';
@@ -222,7 +222,6 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const workplaceId = useWorkplaceId();
   const { employees } = useEmployees();
-  const [generatingSchedule, setGeneratingSchedule] = useState(false);
 
   const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
@@ -284,51 +283,13 @@ export default function Dashboard() {
     { id: 'sales', message: 'Update sales data for accurate staffing', severity: 'warning' as const, route: '/sales' },
   ];
 
-  async function handleGenerate() {
-    setGeneratingSchedule(true);
-    try {
-      if (isApiConfigured) {
-        await api.generateSchedule(weekStr);
-      } else {
-        await new Promise(r => setTimeout(r, 1800));
-      }
-      navigate('/schedule');
-    } catch {
-      /* stay on page */
-    } finally {
-      setGeneratingSchedule(false);
-    }
-  }
-
   return (
     <div className="p-8 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-semibold" style={{ color: '#FAFAFA' }}>Dashboard</h1>
-          <p className="text-sm mt-0.5" style={{ color: '#A1A1AA' }}>
-            Week of {format(weekStart, 'MMMM d')} — {format(addDays(weekStart, 6), 'MMMM d, yyyy')}
-          </p>
-        </div>
-        <button
-          onClick={handleGenerate}
-          disabled={generatingSchedule}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
-          style={{ backgroundColor: '#818CF8', color: '#FFFFFF' }}
-          onMouseEnter={e => { if (!generatingSchedule) (e.currentTarget as HTMLElement).style.backgroundColor = '#6366F1'; }}
-          onMouseLeave={e => { if (!generatingSchedule) (e.currentTarget as HTMLElement).style.backgroundColor = '#818CF8'; }}
-        >
-          {generatingSchedule ? (
-            <>
-              <span className="w-3.5 h-3.5 border-2 rounded-full animate-spin" style={{ borderColor: 'rgba(255,255,255,0.25)', borderTopColor: '#FFFFFF' }} />
-              Generating...
-            </>
-          ) : (
-            <>
-              <Sparkles size={15} />
-              Generate Schedule
-            </>
-          )}
-        </button>
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold" style={{ color: '#FAFAFA' }}>Dashboard</h1>
+        <p className="text-sm mt-0.5" style={{ color: '#A1A1AA' }}>
+          Week of {format(weekStart, 'MMMM d')} — {format(addDays(weekStart, 6), 'MMMM d, yyyy')}
+        </p>
       </div>
 
       <div className="grid gap-4 mb-6" style={{ gridTemplateColumns: '2fr 1fr' }}>
@@ -426,14 +387,6 @@ export default function Dashboard() {
           <div className="text-sm font-medium mb-4" style={{ color: '#FAFAFA' }}>Quick Actions</div>
           <div className="space-y-3">
             {[
-              {
-                label: 'Generate Schedule',
-                desc: 'Auto-assign employees for this week',
-                icon: Zap,
-                color: '#818CF8',
-                bg: 'rgba(129,140,248,0.15)',
-                action: handleGenerate,
-              },
               {
                 label: 'Review Approvals',
                 desc: `${pendingCount} request${pendingCount !== 1 ? 's' : ''} awaiting your decision`,

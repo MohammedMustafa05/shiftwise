@@ -18,12 +18,12 @@ export function createApp() {
   app.use(express.json());
 
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", service: "shiftwise-api" });
+    res.json({ status: "ok", service: "shiftagent-api" });
   });
 
   app.get("/api", (_req, res) => {
     res.json({
-      name: "ShiftWise API",
+      name: "ShiftAgent API",
       version: "0.1.0",
       clearviewMode: process.env.CLEARVIEW_MODE ?? "mock",
     });

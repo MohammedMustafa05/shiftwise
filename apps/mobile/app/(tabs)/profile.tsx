@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
@@ -13,26 +14,11 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../../constants/colors";
 import { currentUser } from "../../constants/dummyData";
-import { api, clearAuth } from "../../lib/api";
+import { api, clearAuth, getStoredUser } from "../../lib/api";
+import { useEmployeeRealtime } from "../../lib/useEmployeeRealtime";
 
-type DetailRowProps = {
-  icon: keyof typeof Feather.glyphMap;
-  label: string;
-  value: string;
-};
-
-function DetailRow({ icon, label, value }: DetailRowProps) {
-  return (
-    <View style={styles.detailRow}>
-      <View style={styles.detailIcon}>
-        <Feather name={icon} size={16} color={Colors.primary} />
-      </View>
-      <View style={styles.detailContent}>
-        <Text style={styles.detailLabel}>{label}</Text>
-        <Text style={styles.detailValue}>{value}</Text>
-      </View>
-    </View>
-  );
+function isNumericPhone(value: string) {
+  return value === "" || /^\d+$/.test(value);
 }
 
 export default function ProfileScreen() {
@@ -40,21 +26,85 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [user, setUser] = useState(currentUser);
+  const [preferredName, setPreferredName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [phoneError, setPhoneError] = useState("");
+  const [roles, setRoles] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  const [userId, setUserId] = useState<string | undefined>();
+  const [workplaceId, setWorkplaceId] = useState<string | undefined>();
 
   useEffect(() => {
+    void getStoredUser().then((u) => {
+      setUserId(u?.id ?? undefined);
+      setWorkplaceId(u?.workplaceId ?? undefined);
+    });
+  }, []);
+
+  const loadProfile = useCallback(() => {
     void api.getMe().then((me) => {
       setUser({
         ...currentUser,
         name: me.name,
         firstName: me.name.split(" ")[0],
         email: me.email,
-        phone: me.phone ?? currentUser.phone,
-        role: me.role,
+        phone: me.phone ?? "",
+        role: me.roles?.join(", ") ?? me.role,
         employmentType: me.employmentType ?? currentUser.employmentType,
         startDate: me.startDate ?? currentUser.startDate,
       });
+      setPreferredName(me.preferredName ?? me.name);
+      setPhone(me.phone ?? "");
+      setRoles(me.roles?.length ? me.roles : [me.role]);
     }).catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  useEmployeeRealtime({
+    userId,
+    workplaceId,
+    onProfileChange: () => loadProfile(),
+  });
+
+  const onPhoneChange = (value: string) => {
+    setPhone(value);
+    if (!isNumericPhone(value)) {
+      setPhoneError("Phone number must contain numbers only");
+    } else {
+      setPhoneError("");
+    }
+  };
+
+  const onSaveProfile = async () => {
+    if (!isNumericPhone(phone)) {
+      setPhoneError("Phone number must contain numbers only");
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await api.updateMe({
+        preferredName: preferredName.trim() || undefined,
+        phone: phone.trim(),
+      });
+      setUser((u) => ({
+        ...u,
+        name: updated.name,
+        firstName: updated.name.split(" ")[0],
+        phone: updated.phone ?? "",
+        role: updated.roles.join(", "),
+      }));
+      setRoles(updated.roles);
+      Alert.alert("Saved", "Your profile has been updated.");
+    } catch (e) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Could not save profile");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleSignOut = () => {
     Alert.alert("Sign out", "Are you sure you want to sign out?", [
@@ -74,6 +124,8 @@ export default function ProfileScreen() {
     Alert.alert("Change password", "Contact your manager to reset your password.");
   };
 
+  const canSave = isNumericPhone(phone) && !saving;
+
   return (
     <ScrollView
       style={styles.scroll}
@@ -89,19 +141,44 @@ export default function ProfileScreen() {
         </View>
         <Text style={styles.name}>{user.name}</Text>
         <Text style={styles.role}>
-          {user.role} · {user.employmentType}
+          {roles.join(" · ")} · {user.employmentType}
         </Text>
       </View>
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Profile details</Text>
-        <DetailRow icon="mail" label="Email" value={user.email} />
+        <Text style={styles.fieldLabel}>Preferred name</Text>
+        <TextInput
+          style={styles.input}
+          value={preferredName}
+          onChangeText={setPreferredName}
+          placeholder="Preferred name"
+          placeholderTextColor={Colors.textMuted}
+        />
         <View style={styles.divider} />
-        <DetailRow icon="phone" label="Phone" value={user.phone} />
+        <Text style={styles.fieldLabel}>Email</Text>
+        <Text style={styles.readOnly}>{user.email}</Text>
         <View style={styles.divider} />
-        <DetailRow icon="briefcase" label="Job Role" value={user.role} />
+        <Text style={styles.fieldLabel}>Phone</Text>
+        <TextInput
+          style={[styles.input, phoneError ? styles.inputError : null]}
+          value={phone}
+          onChangeText={onPhoneChange}
+          keyboardType="number-pad"
+          placeholder="Phone"
+          placeholderTextColor={Colors.textMuted}
+        />
+        {phoneError ? <Text style={styles.errorText}>{phoneError}</Text> : null}
         <View style={styles.divider} />
-        <DetailRow icon="calendar" label="Start date" value={user.startDate} />
+        <Text style={styles.fieldLabel}>Roles</Text>
+        <Text style={styles.readOnly}>{roles.join(", ")}</Text>
+        <Pressable
+          style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]}
+          onPress={() => void onSaveProfile()}
+          disabled={!canSave}
+        >
+          <Text style={styles.saveBtnText}>{saving ? "Saving…" : "Save profile"}</Text>
+        </Pressable>
       </View>
 
       <View style={styles.card}>
@@ -144,17 +221,9 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  scroll: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  content: {
-    paddingHorizontal: 16,
-  },
-  header: {
-    alignItems: "center",
-    marginBottom: 20,
-  },
+  scroll: { flex: 1, backgroundColor: Colors.background },
+  content: { paddingHorizontal: 16 },
+  header: { alignItems: "center", marginBottom: 20 },
   avatar: {
     width: 88,
     height: 88,
@@ -164,21 +233,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 14,
   },
-  initials: {
-    fontSize: 32,
-    fontWeight: "700",
-    color: Colors.textLight,
-  },
-  name: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: Colors.textPrimary,
-  },
-  role: {
-    fontSize: 15,
-    color: Colors.textSecondary,
-    marginTop: 4,
-  },
+  initials: { fontSize: 32, fontWeight: "700", color: Colors.textLight },
+  name: { fontSize: 24, fontWeight: "700", color: Colors.textPrimary },
+  role: { fontSize: 15, color: Colors.textSecondary, marginTop: 4, textAlign: "center" },
   card: {
     backgroundColor: Colors.card,
     borderRadius: 16,
@@ -187,55 +244,39 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 16,
   },
-  cardTitle: {
+  cardTitle: { fontSize: 15, fontWeight: "600", color: Colors.textPrimary, marginBottom: 14 },
+  fieldLabel: { fontSize: 12, color: Colors.textMuted, marginBottom: 6 },
+  input: {
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     fontSize: 15,
-    fontWeight: "600",
     color: Colors.textPrimary,
-    marginBottom: 14,
   },
-  detailRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 4,
-  },
-  detailIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.primaryLight,
+  inputError: { borderColor: Colors.error },
+  errorText: { fontSize: 12, color: Colors.error, marginTop: 4 },
+  readOnly: { fontSize: 15, fontWeight: "500", color: Colors.textPrimary },
+  saveBtn: {
+    marginTop: 16,
+    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
   },
-  detailContent: {
-    flex: 1,
-  },
-  detailLabel: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    marginBottom: 2,
-  },
-  detailValue: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: Colors.textPrimary,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.cardBorder,
-    marginVertical: 12,
-  },
+  saveBtnDisabled: { opacity: 0.5 },
+  saveBtnText: { color: Colors.textLight, fontWeight: "600", fontSize: 15 },
+  divider: { height: 1, backgroundColor: Colors.cardBorder, marginVertical: 12 },
   settingRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingVertical: 4,
   },
-  settingLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
+  settingLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   settingIcon: {
     width: 36,
     height: 36,
@@ -244,11 +285,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  settingLabel: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: Colors.textPrimary,
-  },
+  settingLabel: { fontSize: 15, fontWeight: "500", color: Colors.textPrimary },
   signOutButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -261,12 +298,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.card,
     marginTop: 8,
   },
-  signOutPressed: {
-    opacity: 0.85,
-  },
-  signOutText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: Colors.textPrimary,
-  },
+  signOutPressed: { opacity: 0.85 },
+  signOutText: { fontSize: 16, fontWeight: "600", color: Colors.textPrimary },
 });

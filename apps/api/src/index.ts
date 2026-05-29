@@ -11,7 +11,7 @@ if (process.env.NODE_ENV !== "test") {
 }
 
 app.listen(config.port, () => {
-  console.log(`ShiftWise API running on http://localhost:${config.port}`);
+  console.log(`ShiftAgent API running on http://localhost:${config.port}`);
   console.log(`Clearview mode: ${config.clearview.mode}`);
 });
 

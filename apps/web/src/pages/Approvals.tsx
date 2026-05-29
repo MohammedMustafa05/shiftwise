@@ -1,86 +1,134 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { ClipboardCheck, Check, X, Calendar, Clock, CheckCircle2, XCircle } from 'lucide-react';
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
 import { mockAvailabilityRequests, mockTimeOffRequests } from '../lib/mockData';
 import type { AvailabilityRequest, TimeOffRequest, ApprovalStatus, DayKey } from '../lib/types';
 import { api, isApiConfigured } from '../lib/api';
+import { apiFetch } from '../lib/api/client';
+import { mapAvailabilityFromApi } from '../lib/api/mappers';
 import { useEmployees } from '../hooks/useEmployerApi';
-import { DAY_KEYS, DAY_LABELS, getRoleBadgeClass, getInitials, getAvatarColor } from '../lib/utils';
+import { DAY_KEYS, DAY_LABELS, DAY_FULL, getRoleBadgeClass, getInitials, getAvatarColor } from '../lib/utils';
+import {
+  compareAvailabilityToPrevious,
+  getPreviousApprovedForRequest,
+  isDiffHighlightBlock,
+  type AvailabilityDiffResult,
+} from './approvalsAvailabilityDiff';
 
-const GRID_HOURS = [
-  '10:00','11:00','12:00','13:00','14:00',
-  '15:00','16:00','17:00','18:00','19:00',
-  '20:00','21:00','22:00',
-];
+const RED_FILL = 'rgba(239,68,68,0.35)';
+const RED_BORDER = 'rgba(239,68,68,0.75)';
+const NORMAL_FILL = 'rgba(129,140,248,0.18)';
+const NORMAL_BORDER = 'rgba(129,140,248,0.35)';
 
-function fmtGridHour(h: string): string {
-  const hr = parseInt(h.split(':')[0]);
-  if (hr === 12) return '12p';
-  return hr > 12 ? `${hr - 12}p` : `${hr}a`;
+function dayKeyFromBlockDay(day: string): DayKey | null {
+  const lower = day.trim().toLowerCase();
+  const fromFull = (Object.entries(DAY_FULL) as [DayKey, string][]).find(
+    ([, label]) => label.toLowerCase() === lower,
+  );
+  if (fromFull) return fromFull[0];
+  if ((DAY_KEYS as string[]).includes(lower)) return lower as DayKey;
+  return null;
 }
 
-function safeFormatDate(iso: string, pattern: string): string {
-  if (!iso || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return iso || '—';
-  const d = parseISO(iso.slice(0, 10));
-  if (Number.isNaN(d.getTime())) return iso;
-  return format(d, pattern);
-}
+function AvailabilityBlocksGrid({
+  blocks,
+  diff,
+  isFirstSubmission,
+}: {
+  blocks?: AvailabilityRequest['availability_blocks'];
+  diff?: AvailabilityDiffResult | null;
+  isFirstSubmission?: boolean;
+}) {
+  const blocksByDay = useMemo(() => {
+    const map = new Map<DayKey, AvailabilityRequest['availability_blocks'][number]>();
+    for (const b of blocks ?? []) {
+      const key = dayKeyFromBlockDay(b.day);
+      if (key) map.set(key, b);
+    }
+    return map;
+  }, [blocks]);
 
-function safeFormatDistance(iso: string): string {
-  if (!iso) return 'recently';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return 'recently';
-  return formatDistanceToNow(d, { addSuffix: true });
-}
-
-function AvailabilityGrid({ grid }: { grid: AvailabilityRequest['availability_grid'] }) {
   return (
-    <div className="mt-4 overflow-x-auto">
-      <table style={{ borderCollapse: 'separate', borderSpacing: 3 }}>
-        <thead>
-          <tr>
-            <th style={{ width: 36 }} />
-            {DAY_KEYS.map(day => (
-              <th key={day} className="text-center text-xs font-medium px-1" style={{ color: '#71717A', width: 34 }}>
+    <div className="mt-4">
+      <div className="grid grid-cols-7 gap-2">
+        {DAY_KEYS.map((day) => {
+          const block = blocksByDay.get(day);
+          const dayDiff = diff?.byDay[day];
+          const highlight = isFirstSubmission
+            ? Boolean(block)
+            : dayDiff
+              ? isDiffHighlightBlock(dayDiff)
+              : false;
+          const removed = dayDiff?.status === 'removed';
+
+          return (
+            <div key={day} className="flex flex-col gap-1.5 min-w-0">
+              <div className="text-center text-xs font-medium" style={{ color: '#71717A' }}>
                 {DAY_LABELS[day]}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {GRID_HOURS.map(hour => (
-            <tr key={hour}>
-              <td className="text-xs pr-1.5 text-right" style={{ color: '#71717A', width: 36 }}>
-                {fmtGridHour(hour)}
-              </td>
-              {DAY_KEYS.map(day => {
-                const avail = grid?.[day as DayKey]?.includes(hour) ?? false;
-                return (
-                  <td key={`${day}-${hour}`}>
-                    <div
-                      className="rounded-sm"
-                      style={{
-                        width: 30,
-                        height: 16,
-                        backgroundColor: avail ? 'rgba(129,140,248,0.18)' : '#27272A',
-                        border: `1px solid ${avail ? 'rgba(129,140,248,0.35)' : '#3F3F46'}`,
-                      }}
-                    />
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="flex items-center gap-4 mt-2.5">
+              </div>
+              {removed && !block ? (
+                <div
+                  className="rounded-lg px-2 py-3 min-h-[72px] flex flex-col items-center justify-center text-center"
+                  style={{ border: `1px dashed ${RED_BORDER}`, backgroundColor: 'transparent' }}
+                >
+                  <span className="text-[10px] font-semibold" style={{ color: '#EF4444' }}>Removed</span>
+                  {dayDiff?.previousBlock ? (
+                    <span className="text-[9px] mt-1 leading-tight" style={{ color: '#FCA5A5' }}>
+                      {dayDiff.previousBlock.block}
+                    </span>
+                  ) : null}
+                </div>
+              ) : block ? (
+                <div
+                  className="rounded-lg px-2 py-3 min-h-[72px] flex flex-col items-center justify-center text-center"
+                  style={{
+                    backgroundColor: highlight ? RED_FILL : NORMAL_FILL,
+                    border: `1px solid ${highlight ? RED_BORDER : NORMAL_BORDER}`,
+                  }}
+                >
+                  {highlight && !isFirstSubmission && dayDiff?.status !== 'unchanged' ? (
+                    <span className="text-[9px] font-semibold mb-0.5" style={{ color: '#FFFFFF' }}>
+                      {dayDiff?.status === 'added' ? 'Added' : 'Changed'}
+                    </span>
+                  ) : null}
+                  <span className="text-[11px] font-semibold leading-tight" style={{ color: '#FAFAFA' }}>
+                    {block.block}
+                  </span>
+                  {block.timeRange ? (
+                    <span
+                      className="text-[9px] mt-1 leading-tight"
+                      style={{ color: highlight ? '#FECACA' : '#C7D2FE' }}
+                    >
+                      {block.timeRange}
+                    </span>
+                  ) : null}
+                </div>
+              ) : (
+                <div
+                  className="rounded-lg px-2 py-3 min-h-[72px] flex items-center justify-center"
+                  style={{ backgroundColor: '#18181B', border: '1px solid #3F3F46' }}
+                >
+                  <span className="text-[10px]" style={{ color: '#52525B' }}>Off</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-4 mt-3 flex-wrap">
         <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: 'rgba(129,140,248,0.18)', border: '1px solid rgba(129,140,248,0.35)' }} />
-          <span className="text-xs" style={{ color: '#A1A1AA' }}>Available</span>
+          <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: NORMAL_FILL, border: `1px solid ${NORMAL_BORDER}` }} />
+          <span className="text-xs" style={{ color: '#A1A1AA' }}>Available block</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#27272A', border: '1px solid #3F3F46' }} />
-          <span className="text-xs" style={{ color: '#A1A1AA' }}>Unavailable</span>
+          <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#18181B', border: '1px solid #3F3F46' }} />
+          <span className="text-xs" style={{ color: '#A1A1AA' }}>Day off</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: RED_FILL, border: `1px solid ${RED_BORDER}` }} />
+          <span className="text-xs" style={{ color: '#A1A1AA' }}>
+            {isFirstSubmission ? 'First submission' : 'Changed from last approval'}
+          </span>
         </div>
       </div>
     </div>
@@ -129,6 +177,20 @@ function ActionButtons({ onApprove, onReject }: { onApprove: () => void; onRejec
   );
 }
 
+function safeFormatDate(iso: string, pattern: string): string {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return iso || '—';
+  const d = parseISO(iso.slice(0, 10));
+  if (Number.isNaN(d.getTime())) return iso;
+  return format(d, pattern);
+}
+
+function safeFormatDistance(iso: string): string {
+  if (!iso) return 'recently';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'recently';
+  return formatDistanceToNow(d, { addSuffix: true });
+}
+
 function EmployeeRow({ request }: { request: AvailabilityRequest | TimeOffRequest }) {
   const emp = request.employee;
   const name = emp?.name ?? 'Employee';
@@ -167,24 +229,32 @@ export default function Approvals() {
   const { employees } = useEmployees();
   const [availRequests, setAvailRequests] = useState<AvailabilityRequest[]>(isApiConfigured ? [] : mockAvailabilityRequests);
   const [timeOffRequests, setTimeOffRequests] = useState<TimeOffRequest[]>(isApiConfigured ? [] : mockTimeOffRequests);
+  const [approvedAvailability, setApprovedAvailability] = useState<AvailabilityRequest[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>('availability');
   const [availStatuses, setAvailStatuses] = useState<Record<string, ApprovalStatus>>({});
   const [timeOffStatuses, setTimeOffStatuses] = useState<Record<string, ApprovalStatus>>({});
+  const [approvalError, setApprovalError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isApiConfigured) {
       setAvailStatuses(Object.fromEntries(mockAvailabilityRequests.map(r => [r.id, r.status])));
       setTimeOffStatuses(Object.fromEntries(mockTimeOffRequests.map(r => [r.id, r.status])));
+      setApprovedAvailability([]);
       return;
     }
     void (async () => {
       try {
-        const [avail, toff] = await Promise.all([
+        const [avail, toff, approvedRaw] = await Promise.all([
           api.getAvailabilityRequests(employees),
           api.getTimeOffRequests(employees),
+          apiFetch<Array<Parameters<typeof mapAvailabilityFromApi>[0][number]>>(
+            '/api/approvals/availability?status=approved',
+          ),
         ]);
+        const approved = mapAvailabilityFromApi(approvedRaw, employees);
         setAvailRequests(avail);
         setTimeOffRequests(toff);
+        setApprovedAvailability(approved);
         setAvailStatuses(Object.fromEntries(avail.map(r => [r.id, r.status])));
         setTimeOffStatuses(Object.fromEntries(toff.map(r => [r.id, r.status])));
       } catch {
@@ -193,10 +263,33 @@ export default function Approvals() {
     })();
   }, [employees]);
 
+  const availabilityDiffByRequestId = useMemo(() => {
+    const out = new Map<string, AvailabilityDiffResult>();
+    for (const req of availRequests) {
+      const prior = getPreviousApprovedForRequest(req, approvedAvailability);
+      out.set(req.id, compareAvailabilityToPrevious(req, prior));
+    }
+    return out;
+  }, [availRequests, approvedAvailability]);
+
   async function setAvailStatus(id: string, status: ApprovalStatus) {
-    setAvailStatuses(s => ({ ...s, [id]: status }));
+    const previous = availStatuses[id] ?? availRequests.find((r) => r.id === id)?.status ?? 'pending';
+    setAvailStatuses((s) => ({ ...s, [id]: status }));
+    setApprovalError(null);
     if (isApiConfigured && status !== 'pending') {
-      await api.updateAvailabilityStatus(id, status as 'approved' | 'rejected');
+      try {
+        await api.updateAvailabilityStatus(id, status as 'approved' | 'rejected');
+        if (status === 'approved') {
+          const approvedRaw = await apiFetch<Array<Parameters<typeof mapAvailabilityFromApi>[0][number]>>(
+            '/api/approvals/availability?status=approved',
+          );
+          setApprovedAvailability(mapAvailabilityFromApi(approvedRaw, employees));
+        }
+      } catch (e) {
+        setAvailStatuses((s) => ({ ...s, [id]: previous }));
+        setApprovalError(e instanceof Error ? e.message : 'Could not save approval status');
+        throw e;
+      }
     }
   }
 
@@ -239,6 +332,14 @@ export default function Approvals() {
       </div>
 
       {/* Tabs */}
+      {approvalError && (
+        <div
+          className="mb-4 rounded-lg px-4 py-3 text-sm"
+          style={{ backgroundColor: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.35)', color: '#FCA5A5' }}
+        >
+          {approvalError}
+        </div>
+      )}
       <div className="flex gap-1 p-1 mb-6 rounded-xl w-fit" style={{ backgroundColor: '#27272A', border: '1px solid #3F3F46' }}>
         {tabs.map(tab => (
           <button
@@ -283,12 +384,17 @@ export default function Approvals() {
           ) : (
             availRequests.map(req => {
               const status = availStatuses[req.id] ?? req.status ?? 'pending';
+              const diff = availabilityDiffByRequestId.get(req.id);
+              const isFirstSubmission = diff?.isFirstSubmission ?? true;
               return (
                 <div
                   key={req.id}
                   className="rounded-xl p-5"
                   style={{ backgroundColor: '#27272A', border: '1px solid #3F3F46', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }}
                 >
+                  {isFirstSubmission && (
+                    <p className="text-xs mb-3" style={{ color: '#71717A' }}>First submission</p>
+                  )}
                   <div className="flex items-start justify-between gap-4">
                     <EmployeeRow request={req} />
                     <div className="flex items-center gap-3 shrink-0">
@@ -305,20 +411,26 @@ export default function Approvals() {
                       ) : (
                         <div className="flex items-center gap-2">
                           <StatusBadge status={status} />
-                          <button
-                            onClick={() => setAvailStatuses(s => ({ ...s, [req.id]: 'pending' }))}
-                            className="text-xs transition-colors"
-                            style={{ color: '#71717A' }}
-                            onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#A1A1AA'}
-                            onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#71717A'}
-                          >
-                            Undo
-                          </button>
+                          {isApiConfigured ? null : (
+                            <button
+                              onClick={() => setAvailStatuses(s => ({ ...s, [req.id]: 'pending' }))}
+                              className="text-xs transition-colors"
+                              style={{ color: '#71717A' }}
+                              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#A1A1AA'}
+                              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#71717A'}
+                            >
+                              Undo
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
                   </div>
-                  <AvailabilityGrid grid={req.availability_grid} />
+                  <AvailabilityBlocksGrid
+                    blocks={req.availability_blocks}
+                    diff={diff}
+                    isFirstSubmission={isFirstSubmission}
+                  />
                 </div>
               );
             })

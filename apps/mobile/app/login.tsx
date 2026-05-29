@@ -54,7 +54,7 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={styles.wordmark}>Shiftwise</Text>
+          <Text style={styles.wordmark}>ShiftAgent</Text>
           <Text style={styles.subtitle}>Welcome back</Text>
         </View>
 

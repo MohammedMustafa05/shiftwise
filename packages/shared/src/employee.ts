@@ -26,6 +26,7 @@ export const AvailabilityBlock = z.object({
   dayOfWeek: z.number().int().min(0).max(6),
   startTime: z.string(),
   endTime: z.string(),
+  block: z.enum(["morning", "evening", "full", "off"]).optional(),
 });
 
 export const UpdateAvailabilityRequest = z.object({

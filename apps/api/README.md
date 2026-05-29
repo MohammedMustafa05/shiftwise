@@ -1,4 +1,4 @@
-# ShiftWise API (Plan 1)
+# ShiftAgent API (Plan 1)
 
 Express REST API with **Clearview mock mode** by default (`CLEARVIEW_MODE=mock`).
 
@@ -14,7 +14,7 @@ npm run db:seed    # optional demo data
 npm run dev:api
 ```
 
-Or use local Docker: `docker compose up -d` and `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/shiftwise`.
+Or use local Docker: `docker compose up -d` and `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/shiftagent`.
 
 API: http://localhost:3001  
 Health: `GET /health`
@@ -63,7 +63,7 @@ Requires Postgres (`DATABASE_URL` in `.env`).
 
 ### Manual checklist (mock mode)
 
-See `tests/http/shiftwise.http` and tick items 1–15 in Plan 1 (7b/14b deferred until live Clearview).
+See `tests/http/shiftagent.http` and tick items 1–15 in Plan 1 (7b/14b deferred until live Clearview).
 
 **Seed credentials:** `employer@demo.com` / `password123`
 

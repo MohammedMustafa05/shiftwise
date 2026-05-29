@@ -23,8 +23,8 @@ type ApiWebEmployee = {
   shiftTier: string;
   minHours: number;
   maxHours: number;
-  minShiftsPerWeek?: number;
-  maxShiftsPerWeek?: number;
+  preferredName?: string;
+  fullDayCapable?: boolean;
   employeeType: string;
   pairingAlwaysWith: string[];
   pairingNeverWith: string[];
@@ -71,7 +71,7 @@ export function mapEmployeeFromApi(e: ApiWebEmployee): Employee {
     id: e.id,
     created_at: e.createdAt,
     name: e.name,
-    preferred_name: e.name.split(' ')[0],
+    preferred_name: e.preferredName ?? e.name.split(' ')[0],
     email: e.email,
     phone: e.phone ?? '',
     role: e.role.map((r) => ROLE_MAP[r] ?? 'Cashier'),
@@ -79,8 +79,7 @@ export function mapEmployeeFromApi(e: ApiWebEmployee): Employee {
     shift_tier: (e.shiftTier as Employee['shift_tier']) ?? 'Rush-capable',
     min_hours: e.minHours,
     max_hours: e.maxHours,
-    min_shifts_per_week: e.minShiftsPerWeek,
-    max_shifts_per_week: e.maxShiftsPerWeek,
+    full_day_capable: e.fullDayCapable ?? false,
     employee_type: (e.employeeType as Employee['employee_type']) ?? 'Part Time',
     pairing_always_with: e.pairingAlwaysWith,
     pairing_never_with: e.pairingNeverWith,
@@ -91,6 +90,7 @@ export function mapEmployeeFromApi(e: ApiWebEmployee): Employee {
 export function mapEmployeeToApi(emp: Employee) {
   return {
     name: emp.name,
+    preferredName: emp.preferred_name,
     email: emp.email,
     phone: emp.phone,
     role: emp.role,
@@ -98,9 +98,9 @@ export function mapEmployeeToApi(emp: Employee) {
     shiftTier: emp.shift_tier,
     minHours: emp.min_hours,
     maxHours: emp.max_hours,
-    minShiftsPerWeek: emp.min_shifts_per_week,
-    maxShiftsPerWeek: emp.max_shifts_per_week,
+    fullDayCapable: emp.full_day_capable ?? false,
     employeeType: emp.employee_type,
+    fullDayCapable: emp.full_day_capable ?? false,
     pairingAlwaysWith: emp.pairing_always_with,
     pairingNeverWith: emp.pairing_never_with,
   };
@@ -131,6 +131,12 @@ export function mapScheduleFromApi(
         typeof raw.roleRequirementsConfigured === 'boolean'
           ? raw.roleRequirementsConfigured
           : undefined,
+      preferenceOverrides: Array.isArray(raw.preferenceOverrides)
+        ? (raw.preferenceOverrides as ScheduleMlMetadata['preferenceOverrides'])
+        : undefined,
+      llmSuggestedShifts: Array.isArray(raw.llmSuggestedShifts)
+        ? (raw.llmSuggestedShifts as ScheduleMlMetadata['llmSuggestedShifts'])
+        : undefined,
     };
   }
 
@@ -182,6 +188,28 @@ export function mapShiftUpdatesToApi(
 }
 
 /** API stores [start, end, …] per day; UI grid expects hourly slots like "10:00". */
+function expandHourRange(start: string, end: string): string[] {
+  const startH = parseInt(start.split(':')[0], 10);
+  let endH = parseInt(end.split(':')[0], 10);
+  if (endH === 0) endH = 24;
+  if (endH <= startH) endH += 24;
+  const hours: string[] = [];
+  for (let h = startH; h < endH; h++) {
+    const hr = h >= 24 ? h - 24 : h;
+    hours.push(`${String(hr).padStart(2, '0')}:00`);
+  }
+  return hours;
+}
+
+function isHourlySlotList(values: string[]): boolean {
+  if (!values.every((v) => typeof v === 'string' && /^\d{2}:\d{2}$/.test(v))) return false;
+  if (values.length === 1) return true;
+  if (values.length >= 3) return true;
+  const startH = parseInt(values[0].split(':')[0], 10);
+  const endH = parseInt(values[1].split(':')[0], 10);
+  return endH === startH + 1;
+}
+
 function expandAvailabilityGrid(
   grid: Record<string, string[]>
 ): AvailabilityRequest['availability_grid'] {
@@ -192,22 +220,44 @@ function expandAvailabilityGrid(
   for (const day of dayKeys) {
     result[day] = [];
   }
-  for (const [rawDay, times] of Object.entries(grid ?? {})) {
+  for (const [rawDay, value] of Object.entries(grid ?? {})) {
     const day = rawDay.toLowerCase() as (typeof dayKeys)[number];
-    if (!dayKeys.includes(day) || !times?.length) continue;
+    if (!dayKeys.includes(day) || value == null) continue;
     const hours = new Set<string>();
-    if (times.length >= 2 && times.every((t) => t.includes(':'))) {
-      for (let i = 0; i + 1 < times.length; i += 2) {
-        const startH = parseInt(times[i].split(':')[0], 10);
-        const endH = parseInt(times[i + 1].split(':')[0], 10);
-        for (let h = startH; h < endH; h++) {
-          hours.add(`${String(h).padStart(2, '0')}:00`);
+
+    if (Array.isArray(value) && value.length > 0) {
+      const first = value[0];
+      if (first && typeof first === 'object' && 'startTime' in first && 'endTime' in first) {
+        const item = first as { startTime: string; endTime: string; block?: string };
+        if (item.block !== 'off') {
+          expandHourRange(item.startTime, item.endTime).forEach((h) => hours.add(h));
+        }
+      } else if (value.every((t): t is string => typeof t === 'string' && t.includes(':'))) {
+        if (isHourlySlotList(value)) {
+          for (const t of value) hours.add(t);
+        } else if (value.length >= 2) {
+          for (let i = 0; i + 1 < value.length; i += 2) {
+            expandHourRange(value[i], value[i + 1]).forEach((h) => hours.add(h));
+          }
+        } else {
+          for (const t of value) hours.add(t);
         }
       }
-    } else {
-      for (const t of times) hours.add(t);
+    } else if (typeof value === 'string') {
+      const blockKey = value as string;
+      const ranges: Record<string, [string, string]> = {
+        morning: ['10:00', '16:00'],
+        evening: ['16:00', '22:00'],
+        full: ['10:00', '22:00'],
+        off: ['00:00', '00:00'],
+      };
+      const range = ranges[blockKey];
+      if (range && blockKey !== 'off') {
+        expandHourRange(range[0], range[1]).forEach((h) => hours.add(h));
+      }
     }
-    result[day] = [...hours];
+
+    result[day] = [...hours].sort();
   }
   return result;
 }
@@ -238,6 +288,8 @@ export function mapAvailabilityFromApi(
     employeeName: string;
     weekStart: string;
     availabilityGrid: Record<string, string[]>;
+    availabilityBlocks?: Array<{ day: string; block: string; timeRange: string }>;
+    isFirstApproval?: boolean;
     status: string;
     submittedAt: string;
   }>,
@@ -251,6 +303,8 @@ export function mapAvailabilityFromApi(
       stubEmployeeFromRequest(r.employeeId, r.employeeName),
     week_start_date: r.weekStart,
     availability_grid: expandAvailabilityGrid(r.availabilityGrid ?? {}),
+    availability_blocks: r.availabilityBlocks,
+    is_first_approval: r.isFirstApproval,
     status: r.status as AvailabilityRequest['status'],
     submitted_at: r.submittedAt,
   }));
@@ -287,7 +341,7 @@ export function mapPreferencesFromApi(p: {
   laborCostTarget: number;
   maxConsecutiveDays: number;
   minAvailabilityHours: number;
-  maxHoursPerWeek: number;
+  minDaysOffPerWeek?: number;
   roleRequirements: Preferences['role_requirements'];
   operatingHours: { open: string; close: string };
 }): Preferences {
@@ -296,7 +350,7 @@ export function mapPreferencesFromApi(p: {
     labor_cost_target: p.laborCostTarget,
     max_consecutive_days: p.maxConsecutiveDays,
     min_availability_hours: p.minAvailabilityHours,
-    max_hours_per_week: p.maxHoursPerWeek,
+    min_days_off_per_week: p.minDaysOffPerWeek ?? 2,
     role_requirements: p.roleRequirements,
     operating_hours: p.operatingHours,
   };
@@ -307,7 +361,7 @@ export function mapPreferencesToApi(prefs: Preferences) {
     laborCostTarget: prefs.labor_cost_target,
     maxConsecutiveDays: prefs.max_consecutive_days,
     minAvailabilityHours: prefs.min_availability_hours,
-    maxHoursPerWeek: prefs.max_hours_per_week,
+    minDaysOffPerWeek: prefs.min_days_off_per_week,
     roleRequirements: prefs.role_requirements,
     operatingHours: prefs.operating_hours,
   };

@@ -1,11 +1,11 @@
-# ShiftWise
+# ShiftAgent
 
 AI-powered restaurant scheduling platform. Employers manage schedules on the web; employees use the mobile app.
 
 ## Monorepo structure
 
 ```
-shiftwise/
+shiftagent/
 ├── apps/
 │   ├── web/          # Vite + React + TypeScript (employer dashboard)
 │   ├── mobile/       # Expo + React Native (employee app)

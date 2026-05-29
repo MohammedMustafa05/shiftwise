@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { AuthResponse } from '@shiftwise/shared';
+import type { AuthResponse } from '@shiftagent/shared';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { api, isApiConfigured } from '../lib/api';
 import { clearAuth, getStoredUser, setAuth } from '../lib/api/client';
@@ -53,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (isApiConfigured) {
         localStorage.removeItem('shiftagent_mock_auth');
         const stored = getStoredUser();
-        const t = localStorage.getItem('shiftwise_token');
+        const t = localStorage.getItem('shiftagent_token');
         if (stored && t) {
           setUser(toAppUser(stored));
           setToken(t);

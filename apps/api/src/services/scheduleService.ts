@@ -2,15 +2,162 @@ import type {
   GenerateScheduleResponse,
   ScheduleDetail,
   WorkplacePreferences,
-} from "@shiftwise/shared";
-import { UpdateShiftRequest } from "@shiftwise/shared";
+} from "@shiftagent/shared";
+import { UpdateShiftRequest } from "@shiftagent/shared";
 import type { z } from "zod";
-import { query } from "../db/pool.js";
+import { query, getPool } from "../db/pool.js";
 import { httpError } from "../middleware/errorHandler.js";
 import { writeClearviewExportFile } from "../exports/clearview.js";
 import { config } from "../config.js";
 import { callMlEngine } from "./mlClient.js";
-import { formatDate, getPreviousWeekRange } from "../utils/dates.js";
+import { notifyWorkplaceEmployees } from "./notificationService.js";
+import { formatDate, getPreviousWeekRange, parseTimeToHours } from "../utils/dates.js";
+import { displayNameFromProfile, normalizeRole } from "../utils/employeeMap.js";
+import { selectionsFromGrid } from "../utils/availabilityBlocks.js";
+
+type ProfileRow = {
+  user_id: string;
+  name: string;
+  profile_data: Record<string, unknown>;
+};
+
+function shiftDedupeKey(shift: {
+  employeeId: string;
+  shiftDate: string;
+  startTime: string;
+  endTime: string;
+  role: string;
+}): string {
+  const norm = (t: string) => t.slice(0, 5);
+  return `${shift.employeeId}|${shift.shiftDate}|${norm(shift.startTime)}|${norm(shift.endTime)}|${shift.role}`;
+}
+
+function dedupeGeneratedShifts<T extends {
+  employeeId: string;
+  shiftDate: string;
+  startTime: string;
+  endTime: string;
+  role: string;
+}>(shifts: T[]): T[] {
+  const seen = new Set<string>();
+  return shifts.filter((s) => {
+    const key = shiftDedupeKey(s);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function shiftLabel(shift: {
+  employeeId: string;
+  shiftDate: string;
+  startTime: string;
+  endTime: string;
+  role: string;
+  employeeName?: string;
+}): string {
+  const name = shift.employeeName ?? "Employee";
+  const role = normalizeRole(shift.role);
+  return `${name} — ${role} ${shift.shiftDate} ${shift.startTime}–${shift.endTime}`;
+}
+
+function applyEmployeeSchedulingRules(
+  shifts: GenerateScheduleResponse["shifts"],
+  employees: ProfileRow[]
+) {
+  const byUser = new Map(
+    employees.map((e) => [
+      e.user_id,
+      {
+        name: displayNameFromProfile(e.name, e.profile_data ?? {}),
+        fullDayCapable: (e.profile_data as { fullDayCapable?: boolean }).fullDayCapable === true,
+      },
+    ])
+  );
+  const preferenceOverrides: Array<{
+    employeeName: string;
+    suggested: string;
+    scheduled: string;
+    reason: string;
+  }> = [];
+  const finalShifts: GenerateScheduleResponse["shifts"] = [];
+
+  for (const shift of shifts) {
+    const prof = byUser.get(shift.employeeId);
+    const hours = parseTimeToHours(shift.startTime, shift.endTime);
+    if (prof && hours >= 10 && !prof.fullDayCapable) {
+      const adjusted = { ...shift, startTime: "10:00", endTime: "16:00" };
+      preferenceOverrides.push({
+        employeeName: prof.name,
+        suggested: shiftLabel({ ...shift, employeeName: prof.name }),
+        scheduled: shiftLabel({ ...adjusted, employeeName: prof.name }),
+        reason: "Employee is not full day capable",
+      });
+      finalShifts.push(adjusted);
+    } else {
+      finalShifts.push(shift);
+    }
+  }
+
+  return { finalShifts, preferenceOverrides };
+}
+
+type SubmissionAvailability = {
+  userId: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  block?: string;
+};
+
+async function assertAllEmployeesSubmitted(workplaceId: string, weekStart: string) {
+  const employees = await query<{ user_id: string; name: string }>(
+    `SELECT u.id AS user_id, u.name
+     FROM users u
+     JOIN employee_profiles ep ON ep.user_id = u.id
+     WHERE ep.workplace_id = $1 AND u.role = 'EMPLOYEE'`,
+    [workplaceId]
+  );
+  const submissions = await query<{ user_id: string }>(
+    `SELECT user_id FROM availability_submissions
+     WHERE workplace_id = $1 AND week_start = $2 AND status IN ('pending', 'approved')`,
+    [workplaceId, weekStart]
+  );
+  const submitted = new Set(submissions.rows.map((r) => r.user_id));
+  const missing = employees.rows.filter((e) => !submitted.has(e.user_id));
+  if (missing.length > 0) {
+    throw httpError(
+      400,
+      `Cannot generate schedule until every employee submits availability. Missing: ${missing.map((m) => m.name).join(", ")}`
+    );
+  }
+}
+
+async function loadAvailabilityFromSubmissions(
+  workplaceId: string,
+  weekStart: string
+): Promise<SubmissionAvailability[]> {
+  const result = await query<{ user_id: string; availability_grid: Record<string, unknown> }>(
+    `SELECT user_id, availability_grid FROM availability_submissions
+     WHERE workplace_id = $1 AND week_start = $2 AND status IN ('pending', 'approved')`,
+    [workplaceId, weekStart]
+  );
+  const blocks: SubmissionAvailability[] = [];
+  for (const row of result.rows) {
+    for (const s of selectionsFromGrid(row.availability_grid ?? {})) {
+      if (s.block !== "off") {
+        blocks.push({
+          userId: row.user_id,
+          dayOfWeek: s.dayOfWeek,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          block: s.block,
+        });
+      }
+    }
+  }
+  return blocks;
+}
 
 export async function loadSalesForWorkplace(workplaceId: string): Promise<
   Array<{ date: string; hour: number; salesAmount: number }>
@@ -36,6 +183,8 @@ export async function generateSchedule(
   workplaceId: string,
   weekStart: string
 ): Promise<GenerateScheduleResponse> {
+  await assertAllEmployeesSubmitted(workplaceId, weekStart);
+
   const wp = await query<{ preferences: WorkplacePreferences }>(
     `SELECT preferences FROM workplaces WHERE id = $1`,
     [workplaceId]
@@ -48,22 +197,26 @@ export async function generateSchedule(
     throw httpError(400, "No sales data. Run Clearview sync or upload CSV first.");
   }
 
-  const employees = await query(
+  const employees = await query<{
+    id: string;
+    user_id: string;
+    role: string;
+    employee_number: string | null;
+    payroll_department: string | null;
+    job_code: string | null;
+    name: string;
+    email: string;
+    profile_data: Record<string, unknown>;
+  }>(
     `SELECT ep.id, ep.user_id, ep.role, ep.employee_number, ep.payroll_department, ep.job_code,
-            u.name, u.email
+            ep.profile_data, u.name, u.email
      FROM employee_profiles ep
      JOIN users u ON u.id = ep.user_id
      WHERE ep.workplace_id = $1`,
     [workplaceId]
   );
 
-  const availability = await query(
-    `SELECT ea.user_id, ea.day_of_week, ea.start_time::text, ea.end_time::text
-     FROM employee_availability ea
-     JOIN users u ON u.id = ea.user_id
-     WHERE u.workplace_id = $1`,
-    [workplaceId]
-  );
+  const submissionAvailability = await loadAvailabilityFromSubmissions(workplaceId, weekStart);
 
   const mlResult = await callMlEngine(
     workplaceId,
@@ -81,11 +234,19 @@ export async function generateSchedule(
       payrollDepartment: e.payroll_department,
       jobCode: e.job_code,
     })),
-    availability.rows.map((a) => ({
-      dayOfWeek: a.day_of_week,
-      startTime: a.start_time.slice(0, 5),
-      endTime: a.end_time.slice(0, 5),
+    submissionAvailability.map((a) => ({
+      userId: a.userId,
+      dayOfWeek: a.dayOfWeek,
+      startTime: a.startTime,
+      endTime: a.endTime,
+      block: a.block,
     }))
+  );
+
+  const llmSuggestedShifts = mlResult.shifts.map((s) => ({ ...s }));
+  const { finalShifts, preferenceOverrides } = applyEmployeeSchedulingRules(
+    mlResult.shifts,
+    employees.rows
   );
 
   const scheduleInsert = await query<{ id: string }>(
@@ -97,34 +258,50 @@ export async function generateSchedule(
     [
       workplaceId,
       weekStart,
-      JSON.stringify({ workersNeeded: mlResult.workersNeeded, flags: mlResult.flags }),
+      JSON.stringify({
+        workersNeeded: mlResult.workersNeeded,
+        flags: mlResult.flags,
+        llmSuggestedShifts,
+        preferenceOverrides,
+      }),
     ]
   );
   const scheduleId = scheduleInsert.rows[0].id;
+  const uniqueShifts = dedupeGeneratedShifts(finalShifts);
 
-  await query(`DELETE FROM schedule_shifts WHERE schedule_id = $1`, [scheduleId]);
-
+  const pool = getPool();
+  const client = await pool.connect();
   const persistedShifts: GenerateScheduleResponse["shifts"] = [];
-  for (const shift of mlResult.shifts) {
-    const ins = await query<{ id: string }>(
-      `INSERT INTO schedule_shifts
-       (schedule_id, employee_id, day_of_week, shift_date, start_time, end_time, role, location)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id`,
-      [
-        scheduleId,
-        shift.employeeId,
-        ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].indexOf(shift.day) >= 0
-          ? ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].indexOf(shift.day)
-          : 0,
-        shift.shiftDate,
-        shift.startTime,
-        shift.endTime,
-        shift.role,
-        shift.location ?? "Main",
-      ]
-    );
-    persistedShifts.push({ ...shift, id: ins.rows[0].id });
+  try {
+    await client.query("BEGIN");
+    await client.query(`DELETE FROM schedule_shifts WHERE schedule_id = $1`, [scheduleId]);
+    for (const shift of uniqueShifts) {
+      const ins = await client.query<{ id: string }>(
+        `INSERT INTO schedule_shifts
+         (schedule_id, employee_id, day_of_week, shift_date, start_time, end_time, role, location)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id`,
+        [
+          scheduleId,
+          shift.employeeId,
+          ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].indexOf(shift.day) >= 0
+            ? ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].indexOf(shift.day)
+            : 0,
+          shift.shiftDate,
+          shift.startTime,
+          shift.endTime,
+          shift.role,
+          shift.location ?? "Main",
+        ]
+      );
+      persistedShifts.push({ ...shift, id: ins.rows[0].id });
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
   }
 
   return {
@@ -165,6 +342,17 @@ export async function getScheduleDetail(
 
   const days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
   const row = sched.rows[0];
+  const seen = new Set<string>();
+  const uniqueShiftRows = shifts.rows.filter((s) => {
+    const shiftDate =
+      s.shift_date instanceof Date
+        ? s.shift_date.toISOString().slice(0, 10)
+        : String(s.shift_date).slice(0, 10);
+    const key = `${s.employee_id}|${shiftDate}|${s.start_time.slice(0, 5)}|${s.end_time.slice(0, 5)}|${s.role}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
   return {
     id: row.id,
@@ -174,7 +362,7 @@ export async function getScheduleDetail(
     mlMetadata: row.ml_metadata ?? {},
     lastSalesSyncAt: row.last_sales_sync_at?.toISOString() ?? null,
     exportedAt: row.exported_at?.toISOString() ?? null,
-    shifts: shifts.rows.map((s) => ({
+    shifts: uniqueShiftRows.map((s) => ({
       id: s.id,
       employeeId: s.employee_id,
       day: days[s.day_of_week] ?? "MON",
@@ -322,6 +510,15 @@ export async function publishSchedule(
   );
 
   const schedule = await getScheduleDetail(scheduleId, workplaceId);
+
+  await notifyWorkplaceEmployees(
+    workplaceId,
+    "schedule_published",
+    "Weekly schedule is live",
+    "/(tabs)/schedule",
+    scheduleId
+  );
+
   return {
     schedule,
     downloadUrl: `/api/schedules/${scheduleId}/export/clearview`,

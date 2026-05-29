@@ -4,11 +4,11 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: shiftwise
+      POSTGRES_DB: shiftagent
     ports:
       - "5432:5432"
     volumes:
-      - shiftwise_pg:/var/lib/postgresql/data
+      - shiftagent_pg:/var/lib/postgresql/data
 
 volumes:
-  shiftwise_pg:
+  shiftagent_pg:

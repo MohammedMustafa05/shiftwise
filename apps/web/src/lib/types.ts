@@ -22,8 +22,7 @@ export interface Employee {
   shift_tier: ShiftTier;
   min_hours: number;
   max_hours: number;
-  min_shifts_per_week?: number;
-  max_shifts_per_week?: number;
+  full_day_capable?: boolean;
   employee_type: EmployeeType;
   pairing_always_with: string[];
   pairing_never_with: string[];
@@ -32,12 +31,20 @@ export interface Employee {
 // availability_grid: each day maps to an array of available hour strings e.g. ["10:00","11:00","14:00"]
 export type AvailabilityGrid = Record<DayKey, string[]>;
 
+export interface AvailabilityBlockSummary {
+  day: string;
+  block: string;
+  timeRange: string;
+}
+
 export interface AvailabilityRequest {
   id: string;
   employee_id: string;
   employee?: Employee;
   week_start_date: string;
   availability_grid: AvailabilityGrid;
+  availability_blocks?: AvailabilityBlockSummary[];
+  is_first_approval?: boolean;
   status: ApprovalStatus;
   submitted_at: string;
 }
@@ -72,7 +79,7 @@ export interface Preferences {
   labor_cost_target: number;
   max_consecutive_days: number;
   min_availability_hours: number;
-  max_hours_per_week: number;
+  min_days_off_per_week: number;
   role_requirements: Record<string, TimeRangeRule[]>;
   operating_hours: {
     open: string;
@@ -111,8 +118,26 @@ export interface WorkersNeededDay {
   workers: number;
 }
 
+export interface PreferenceOverride {
+  employeeName: string;
+  suggested: string;
+  scheduled: string;
+  reason: string;
+}
+
+export interface LlmSuggestedShift {
+  employeeId: string;
+  shiftDate: string;
+  startTime: string;
+  endTime: string;
+  role: string;
+  day?: string;
+}
+
 export interface ScheduleMlMetadata {
   workersNeeded?: { byHour: WorkersNeededHour[]; byDay: WorkersNeededDay[] };
+  preferenceOverrides?: PreferenceOverride[];
+  llmSuggestedShifts?: LlmSuggestedShift[];
   flags?: ScheduleFlag[];
   engineVersion?: string;
   labourCostPct?: number;

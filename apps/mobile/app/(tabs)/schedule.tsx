@@ -12,6 +12,7 @@ import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../../constants/colors";
 import { api, getStoredUser } from "../../lib/api";
+import { useScheduleRealtime } from "../../lib/useScheduleRealtime";
 import {
   formatDateYmd,
   formatShiftTimeRange,
@@ -69,6 +70,23 @@ function getDaysForWeek(weekOffset: number) {
   });
 }
 
+function getTodayDayIndex(weekOffset: number): number {
+  const monday = getMonday(weekOffset);
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(monday, i);
+    if (
+      d.getFullYear() === today.getFullYear() &&
+      d.getMonth() === today.getMonth() &&
+      d.getDate() === today.getDate()
+    ) {
+      return i;
+    }
+  }
+  return 0;
+}
+
 
 function mapApiRole(role: string): Role {
   const r = role.toUpperCase();
@@ -81,11 +99,12 @@ export default function ScheduleScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [weekOffset, setWeekOffset] = useState(0);
-  const [selectedDay, setSelectedDay] = useState(0);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [selectedDay, setSelectedDay] = useState(() => getTodayDayIndex(0));
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [weekShifts, setWeekShifts] = useState<EmployeeShift[]>([]);
   const [loading, setLoading] = useState(true);
+  const [workplaceId, setWorkplaceId] = useState<string | undefined>();
 
   const refreshPending = useCallback(() => {
     void api.getTransferRequests().then((rows) => {
@@ -101,9 +120,14 @@ export default function ScheduleScreen() {
         setWeekShifts([]);
         return;
       }
+      setWorkplaceId(user.workplaceId);
       const monday = getMondayForOffset(weekOffset);
       const weekStart = formatDateYmd(monday);
       const rows = await api.getTeamSchedule(user.workplaceId, weekStart);
+      const mySchedule = await api.getMySchedule(weekStart);
+      if (mySchedule.scheduleId) {
+        void api.markScheduleViewed(mySchedule.scheduleId).catch(() => undefined);
+      }
       setWeekShifts(
         rows.map((r) => ({
           id: r.id,
@@ -135,6 +159,10 @@ export default function ScheduleScreen() {
     }, [refreshPending, loadWeek]),
   );
 
+  useScheduleRealtime(workplaceId, () => {
+    void loadWeek();
+  });
+
   const days = useMemo(() => getDaysForWeek(weekOffset), [weekOffset]);
   const weekLabel = useMemo(() => formatWeekLabel(weekOffset), [weekOffset]);
 
@@ -143,34 +171,27 @@ export default function ScheduleScreen() {
   }, [weekShifts, selectedDay]);
 
   const goPrevWeek = () => {
-    setWeekOffset((w) => w - 1);
-    setSelectedDay(0);
+    setWeekOffset((w) => {
+      const next = w - 1;
+      setSelectedDay(getTodayDayIndex(next));
+      return next;
+    });
   };
 
   const goNextWeek = () => {
-    setWeekOffset((w) => w + 1);
-    setSelectedDay(0);
+    setWeekOffset((w) => {
+      const next = w + 1;
+      setSelectedDay(getTodayDayIndex(next));
+      return next;
+    });
   };
 
-  const openTransfer = () => {
-    setMenuOpen(false);
-    router.push("/transfer-shift");
-  };
-
-  const openOffer = () => {
-    setMenuOpen(false);
-    router.push("/offer-shift");
-  };
-
-  const openOpenShifts = () => {
-    setMenuOpen(false);
-    router.push("/open-shifts");
-  };
-
-  const openRequests = () => {
-    setMenuOpen(false);
-    router.push("/shift-requests");
-  };
+  const sheetOptions = [
+    { label: "Transfer My Shift", route: "/transfer-shift" as const },
+    { label: "Offer Shift to Team", route: "/offer-shift" as const },
+    { label: "Shift Requests", route: "/shift-requests" as const, badge: pendingCount },
+    { label: "Request Time Off", route: "/request-time-off" as const },
+  ];
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top + 4 }]}>
@@ -179,55 +200,32 @@ export default function ScheduleScreen() {
           <Text style={styles.title}>Schedule</Text>
           <Text style={styles.subtitle}>Weekly workforce view</Text>
         </View>
-        <Pressable
-          style={styles.menuBtn}
-          onPress={() => setMenuOpen(true)}
-          hitSlop={8}
-        >
-          <Feather name="more-vertical" size={22} color={Colors.textPrimary} />
-          {pendingCount > 0 ? (
-            <View style={styles.menuBadge}>
-              <Text style={styles.menuBadgeText}>{pendingCount}</Text>
-            </View>
-          ) : null}
-        </Pressable>
       </View>
 
-      <Modal visible={menuOpen} transparent animationType="fade">
-        <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
+      <Modal visible={sheetOpen} transparent animationType="slide">
+        <Pressable style={styles.sheetBackdrop} onPress={() => setSheetOpen(false)}>
           <Pressable
-            style={[styles.menuSheet, { top: insets.top + 52, right: 16 }]}
+            style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}
             onPress={(e) => e.stopPropagation()}
           >
-            <Pressable style={styles.menuItem} onPress={openTransfer}>
-              <Feather name="repeat" size={18} color={Colors.primary} />
-              <View style={styles.menuItemBody}>
-                <Text style={styles.menuItemText}>Transfer My Shift</Text>
-                <Text style={styles.menuItemSubtext}>Switch with coworkers</Text>
-              </View>
-            </Pressable>
-            <View style={styles.menuDivider} />
-            <Pressable style={styles.menuItem} onPress={openOffer}>
-              <Feather name="upload" size={18} color={Colors.primary} />
-              <Text style={styles.menuItemText}>Offer Shift to Team</Text>
-            </Pressable>
-            <View style={styles.menuDivider} />
-            <Pressable style={styles.menuItem} onPress={openOpenShifts}>
-              <Feather name="inbox" size={18} color={Colors.primary} />
-              <Text style={styles.menuItemText}>Open Shifts</Text>
-            </Pressable>
-            <View style={styles.menuDivider} />
-            <Pressable style={styles.menuItem} onPress={openRequests}>
-              <Feather name="inbox" size={18} color={Colors.primary} />
-              <Text style={styles.menuItemText}>
-                Shift Requests{pendingCount > 0 ? ` (${pendingCount})` : ""}
-              </Text>
-              {pendingCount > 0 ? (
-                <View style={styles.menuItemBadge}>
-                  <Text style={styles.menuItemBadgeText}>{pendingCount}</Text>
-                </View>
-              ) : null}
-            </Pressable>
+            {sheetOptions.map((opt) => (
+              <Pressable
+                key={opt.label}
+                style={styles.sheetRow}
+                onPress={() => {
+                  setSheetOpen(false);
+                  router.push(opt.route);
+                }}
+              >
+                <Text style={styles.sheetRowText}>{opt.label}</Text>
+                {opt.badge && opt.badge > 0 ? (
+                  <View style={styles.sheetBadge}>
+                    <Text style={styles.sheetBadgeText}>{opt.badge}</Text>
+                  </View>
+                ) : null}
+                <Feather name="chevron-right" size={18} color={Colors.textMuted} />
+              </Pressable>
+            ))}
           </Pressable>
         </Pressable>
       </Modal>
@@ -277,7 +275,7 @@ export default function ScheduleScreen() {
         style={styles.list}
         contentContainerStyle={[
           styles.listContent,
-          { paddingBottom: insets.bottom + 16 },
+          { paddingBottom: insets.bottom + 88 },
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -302,6 +300,12 @@ export default function ScheduleScreen() {
           ))
         )}
       </ScrollView>
+
+      <View style={[styles.manageWrap, { paddingBottom: insets.bottom + 8 }]}>
+        <Pressable style={styles.manageBtn} onPress={() => setSheetOpen(true)}>
+          <Text style={styles.manageBtnText}>Manage Shifts</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -332,74 +336,27 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     marginTop: 2,
   },
-  menuBtn: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 2,
-  },
-  menuBadge: {
-    position: "absolute",
-    top: 4,
-    right: 4,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: Colors.error,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 4,
-  },
-  menuBadgeText: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: Colors.textLight,
-  },
-  menuBackdrop: {
+  sheetBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.25)",
+    backgroundColor: "rgba(15, 23, 42, 0.35)",
+    justifyContent: "flex-end",
   },
-  menuSheet: {
-    position: "absolute",
+  sheet: {
     backgroundColor: Colors.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    minWidth: 220,
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 6,
-    overflow: "hidden",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingTop: 8,
+    paddingHorizontal: 16,
   },
-  menuItem: {
+  sheetRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
   },
-  menuItemText: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: "600",
-    color: Colors.textPrimary,
-  },
-  menuItemBody: {
-    flex: 1,
-  },
-  menuItemSubtext: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  menuDivider: {
-    height: 1,
-    backgroundColor: Colors.border,
-  },
-  menuItemBadge: {
+  sheetRowText: { flex: 1, fontSize: 16, fontWeight: "600", color: Colors.textPrimary },
+  sheetBadge: {
     minWidth: 20,
     height: 20,
     borderRadius: 10,
@@ -407,12 +364,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 6,
+    marginRight: 8,
   },
-  menuItemBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: Colors.textLight,
+  sheetBadgeText: { fontSize: 11, fontWeight: "700", color: Colors.textLight },
+  manageWrap: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    bottom: 0,
   },
+  manageBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: 14,
+    height: 52,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  manageBtnText: { color: Colors.textLight, fontSize: 16, fontWeight: "600" },
   weekNav: {
     flexDirection: "row",
     alignItems: "center",

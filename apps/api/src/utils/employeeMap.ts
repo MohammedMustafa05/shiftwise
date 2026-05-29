@@ -1,4 +1,4 @@
-import { EmployeeProfileData } from "@shiftwise/shared";
+import { EmployeeProfileData } from "@shiftagent/shared";
 import type { z } from "zod";
 
 type ProfileData = z.infer<typeof EmployeeProfileData>;
@@ -23,6 +23,7 @@ export function mapWebEmployee(row: ProfileRow) {
     id: row.id,
     userId: row.user_id,
     name: row.name,
+    preferredName: pd.preferredName ?? undefined,
     email: row.email,
     phone: pd.phone ?? row.phone ?? "",
     role: roles,
@@ -33,10 +34,20 @@ export function mapWebEmployee(row: ProfileRow) {
     minShiftsPerWeek: pd.minShiftsPerWeek,
     maxShiftsPerWeek: pd.maxShiftsPerWeek,
     employeeType: pd.employeeType ?? "Part Time",
+    fullDayCapable: pd.fullDayCapable ?? false,
     pairingAlwaysWith: pd.pairingAlwaysWith ?? [],
     pairingNeverWith: pd.pairingNeverWith ?? [],
     createdAt: row.created_at.toISOString(),
   };
+}
+
+export function displayNameFromProfile(
+  legalName: string,
+  profileData: ProfileData | Record<string, unknown>
+): string {
+  const pd = profileData as ProfileData;
+  const preferred = pd.preferredName?.trim();
+  return preferred || legalName;
 }
 
 export function profileDataFromWebInput(body: Record<string, unknown>): ProfileData {
@@ -44,6 +55,7 @@ export function profileDataFromWebInput(body: Record<string, unknown>): ProfileD
     preferredName: body.preferredName as string | undefined,
     phone: body.phone as string | undefined,
     roles: body.role as string[] | undefined,
+    fullDayCapable: body.fullDayCapable as boolean | undefined,
     experienceLevel: body.experienceLevel as string | undefined,
     shiftTier: body.shiftTier as string | undefined,
     minHours: body.minHours as number | undefined,

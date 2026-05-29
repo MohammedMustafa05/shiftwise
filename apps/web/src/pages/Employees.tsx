@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Users, Search, Plus, X, Phone, Mail, ChevronDown, Save } from 'lucide-react';
+import { Users, Search, Plus, X, Phone, Mail, ChevronDown, Save, Trash2 } from 'lucide-react';
 import type { Employee, Role, ExperienceLevel, ShiftTier, EmployeeType } from '../lib/types';
 import {
   getRoleBadgeClass, getExperienceBadgeClass, getInitials, getAvatarColor, generateId,
@@ -12,11 +12,17 @@ const EXPERIENCE_LEVELS: ExperienceLevel[] = ['Veteran', 'Intermediate', 'Traine
 const SHIFT_TIERS: ShiftTier[] = ['Rush-capable', 'Light shifts'];
 const EMPLOYEE_TYPES: EmployeeType[] = ['Part Time', 'Full Time'];
 
+const HOUR_PRESETS: Record<EmployeeType, { min: number; max: number }> = {
+  'Full Time': { min: 20, max: 50 },
+  'Part Time': { min: 4, max: 24 },
+};
+
 const DEFAULT_EMPLOYEE: Omit<Employee, 'id' | 'created_at'> = {
   name: '', preferred_name: '', email: '', phone: '',
   role: ['Cashier'], experience_level: 'Intermediate', shift_tier: 'Rush-capable',
-  min_hours: 20, max_hours: 35, min_shifts_per_week: 2, max_shifts_per_week: 5,
+  min_hours: 4, max_hours: 24,
   employee_type: 'Part Time',
+  full_day_capable: false,
   pairing_always_with: [], pairing_never_with: [],
 };
 
@@ -121,10 +127,11 @@ function DrawerNumberField({
 }
 
 function EmployeeDrawer({
-  employee, onSave, onClose,
+  employee, onSave, onRemove, onClose,
 }: {
   employee: Partial<Employee>;
   onSave: (emp: Employee) => void;
+  onRemove?: (emp: Employee) => void;
   onClose: () => void;
 }) {
   const isNew = !employee.id;
@@ -280,10 +287,6 @@ function EmployeeDrawer({
               <DrawerNumberField label="Min Hours / Week" value={form.min_hours} onChange={v => set('min_hours', v)} min={0} max={80} suffix="hrs" />
               <DrawerNumberField label="Max Hours / Week" value={form.max_hours} onChange={v => set('max_hours', v)} min={0} max={80} suffix="hrs" />
             </div>
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <DrawerNumberField label="Min Shifts / Week" value={form.min_shifts_per_week ?? 0} onChange={v => set('min_shifts_per_week', v)} min={0} max={14} suffix="shifts" />
-              <DrawerNumberField label="Max Shifts / Week" value={form.max_shifts_per_week ?? 0} onChange={v => set('max_shifts_per_week', v)} min={0} max={14} suffix="shifts" />
-            </div>
             <div>
               <label className="block text-xs font-medium uppercase tracking-wider mb-1.5"
                 style={{ color: '#71717A', letterSpacing: '0.06em' }}>
@@ -294,7 +297,15 @@ function EmployeeDrawer({
                   <button
                     key={type}
                     type="button"
-                    onClick={() => set('employee_type', type)}
+                    onClick={() => {
+                      const preset = HOUR_PRESETS[type];
+                      setForm(f => ({
+                        ...f,
+                        employee_type: type,
+                        min_hours: preset.min,
+                        max_hours: preset.max,
+                      }));
+                    }}
                     className="flex-1 py-2 rounded-lg text-xs font-medium transition-all"
                     style={
                       form.employee_type === type
@@ -307,11 +318,41 @@ function EmployeeDrawer({
                 ))}
               </div>
             </div>
+            <div className="flex items-center justify-between mt-4 py-2">
+              <span className="text-sm font-medium" style={{ color: '#FAFAFA' }}>Full Day Capable</span>
+              <button
+                type="button"
+                onClick={() => set('full_day_capable', !form.full_day_capable)}
+                className="relative w-11 h-6 rounded-full transition-colors"
+                style={{ backgroundColor: form.full_day_capable ? '#818CF8' : '#3F3F46' }}
+              >
+                <span
+                  className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
+                  style={{ left: form.full_day_capable ? 22 : 2 }}
+                />
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Footer */}
         <div className="px-6 py-4" style={{ borderTop: '1px solid #3F3F46' }}>
+          {!isNew && employee.id && onRemove ? (
+            <button
+              onClick={() => onRemove({
+                ...form,
+                id: employee.id!,
+                created_at: employee.created_at ?? new Date().toISOString(),
+              })}
+              className="flex items-center justify-center gap-2 w-full mb-3 py-2.5 rounded-lg text-sm font-medium transition-all"
+              style={{ backgroundColor: 'rgba(248,113,113,0.08)', color: '#F87171', border: '1px solid rgba(248,113,113,0.18)' }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(248,113,113,0.16)'}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(248,113,113,0.08)'}
+            >
+              <Trash2 size={14} />
+              Remove Employee
+            </button>
+          ) : null}
           <div className="flex gap-3">
             <button
               onClick={onClose}
@@ -340,6 +381,47 @@ function EmployeeDrawer({
   );
 }
 
+function RemoveEmployeeModal({
+  employee,
+  onConfirm,
+  onCancel,
+  removing,
+}: {
+  employee: Employee;
+  onConfirm: () => void;
+  onCancel: () => void;
+  removing: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.65)' }}>
+      <div className="w-full max-w-md rounded-xl p-6" style={{ backgroundColor: '#27272A', border: '1px solid #3F3F46' }}>
+        <h2 className="text-lg font-semibold mb-2" style={{ color: '#FAFAFA' }}>Remove employee?</h2>
+        <p className="text-sm mb-6" style={{ color: '#A1A1AA' }}>
+          {employee.name} will be removed from your team. Their availability, schedule shifts, and account access will be deleted. This cannot be undone.
+        </p>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            disabled={removing}
+            className="px-4 py-2 rounded-lg text-sm"
+            style={{ color: '#A1A1AA', border: '1px solid #3F3F46' }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={removing}
+            className="px-4 py-2 rounded-lg text-sm font-medium"
+            style={{ backgroundColor: '#EF4444', color: '#FFFFFF', opacity: removing ? 0.6 : 1 }}
+          >
+            {removing ? 'Removing…' : 'Remove Employee'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Employees() {
   const { employees, setEmployees, workplaceId } = useEmployees();
   const [search, setSearch] = useState('');
@@ -347,6 +429,9 @@ export default function Employees() {
   const [filterExp, setFilterExp] = useState<string>('All');
   const [filterType, setFilterType] = useState<string>('All');
   const [drawer, setDrawer] = useState<Partial<Employee> | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<Employee | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   const filtered = useMemo(() => employees.filter(e => {
     const q = search.toLowerCase();
@@ -386,6 +471,28 @@ export default function Employees() {
     });
   }
 
+  async function handleRemove(emp: Employee) {
+    setRemoveTarget(emp);
+  }
+
+  async function confirmRemove() {
+    if (!removeTarget) return;
+    setRemoving(true);
+    setRemoveError(null);
+    try {
+      if (isApiConfigured && workplaceId) {
+        await api.deleteEmployee(workplaceId, removeTarget.id);
+      }
+      setEmployees(prev => prev.filter(e => e.id !== removeTarget.id));
+      if (drawer?.id === removeTarget.id) setDrawer(null);
+      setRemoveTarget(null);
+    } catch (e) {
+      setRemoveError(e instanceof Error ? e.message : 'Could not remove employee');
+    } finally {
+      setRemoving(false);
+    }
+  }
+
   const hasFilters = search || filterRole !== 'All' || filterExp !== 'All' || filterType !== 'All';
 
   return (
@@ -409,6 +516,15 @@ export default function Employees() {
           Add Employee
         </button>
       </div>
+
+      {removeError && (
+        <div
+          className="mb-4 rounded-lg px-4 py-3 text-sm"
+          style={{ backgroundColor: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.35)', color: '#FCA5A5' }}
+        >
+          {removeError}
+        </div>
+      )}
 
       {/* Search + Filters */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -473,7 +589,7 @@ export default function Employees() {
         <div
           className="grid px-5 py-3 text-xs font-medium uppercase tracking-wide"
           style={{
-            gridTemplateColumns: '2fr 160px 130px 130px 100px 80px 110px 72px',
+            gridTemplateColumns: '2fr 160px 130px 130px 120px 110px 72px',
             color: '#71717A',
             borderBottom: '1px solid #3F3F46',
             letterSpacing: '0.06em',
@@ -484,7 +600,6 @@ export default function Employees() {
           <div>Experience</div>
           <div>Shift Tier</div>
           <div>Hours</div>
-          <div>Shifts</div>
           <div>Type</div>
           <div className="text-right">Edit</div>
         </div>
@@ -511,7 +626,7 @@ export default function Employees() {
               key={emp.id}
               className="grid items-center px-5 py-3.5 transition-colors"
               style={{
-                gridTemplateColumns: '2fr 160px 130px 130px 100px 80px 110px 72px',
+                gridTemplateColumns: '2fr 160px 130px 130px 120px 110px 72px',
                 borderBottom: idx < filtered.length - 1 ? '1px solid #3F3F46' : undefined,
               }}
               onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(30,30,42,0.5)'}
@@ -548,10 +663,6 @@ export default function Employees() {
               <div className="text-xs" style={{ color: '#A1A1AA' }}>{emp.shift_tier}</div>
               {/* Hours */}
               <div className="text-xs" style={{ color: '#A1A1AA' }}>{emp.min_hours}–{emp.max_hours} hrs</div>
-              {/* Shifts */}
-              <div className="text-xs" style={{ color: '#A1A1AA' }}>
-                {emp.min_shifts_per_week ?? 0} – {emp.max_shifts_per_week ?? 0}
-              </div>
               {/* Employee Type */}
               <div>
                 <span
@@ -592,7 +703,17 @@ export default function Employees() {
         <EmployeeDrawer
           employee={drawer}
           onSave={handleSave}
+          onRemove={handleRemove}
           onClose={() => setDrawer(null)}
+        />
+      )}
+
+      {removeTarget && (
+        <RemoveEmployeeModal
+          employee={removeTarget}
+          onConfirm={() => void confirmRemove()}
+          onCancel={() => { if (!removing) setRemoveTarget(null); }}
+          removing={removing}
         />
       )}
     </div>

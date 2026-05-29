@@ -106,14 +106,16 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     >
       {/* Logo + Toggle */}
       <div
-        className="flex items-center px-4 py-5 shrink-0"
+        className="flex shrink-0 px-3 py-4"
         style={{
           borderBottom: '1px solid #3F3F46',
+          flexDirection: collapsed ? 'column' : 'row',
+          alignItems: 'center',
           justifyContent: collapsed ? 'center' : 'space-between',
-          position: 'relative',
+          gap: collapsed ? 10 : 0,
         }}
       >
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0" style={{ justifyContent: collapsed ? 'center' : undefined }}>
           <div className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0" style={{ backgroundColor: '#818CF8' }}>
             <ChefHat size={16} style={{ color: '#FFFFFF' }} />
           </div>
@@ -125,23 +127,19 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
           )}
         </div>
 
-        {/* Toggle button */}
         <button
           onClick={onToggle}
           className="flex items-center justify-center transition-colors shrink-0"
           style={{
-            width: 22, height: 22, borderRadius: '50%',
+            width: 28, height: 28, borderRadius: '50%',
             backgroundColor: '#27272A', border: '1px solid #3F3F46',
             color: '#71717A', cursor: 'pointer',
-            position: collapsed ? 'absolute' : 'static',
-            right: collapsed ? -11 : undefined,
-            top: collapsed ? '50%' : undefined,
-            transform: collapsed ? 'translateY(-50%)' : undefined,
           }}
           onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#3F3F46'}
           onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = '#27272A'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>
       </div>
 

@@ -1,4 +1,4 @@
-### ShiftWise API manual checklist (mock Clearview)
+### ShiftAgent API manual checklist (mock Clearview)
 @baseUrl = http://localhost:3001
 @cronSecret = dev-cron-secret
 

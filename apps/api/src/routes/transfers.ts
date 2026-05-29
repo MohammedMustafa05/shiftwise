@@ -1,10 +1,12 @@
 import { Router } from "express";
-import { CreateTransferRequest, RespondTransferRequest } from "@shiftwise/shared";
+import { CreateTransferRequest, RespondTransferRequest } from "@shiftagent/shared";
 import { query } from "../db/pool.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { requireRole } from "../middleware/roleGuard.js";
 import { httpError } from "../middleware/errorHandler.js";
 import { logActivity } from "../services/activityService.js";
+import { createNotification } from "../services/notificationService.js";
+import { toIsoDate } from "../utils/dates.js";
 
 export const transfersRouter = Router();
 
@@ -34,7 +36,7 @@ transfersRouter.get("/me", requireRole("EMPLOYEE"), async (req, res, next) => {
         fromUserName: r.from_name,
         toUserId: r.to_user_id,
         shiftId: r.shift_id,
-        shiftDate: String(r.shift_date).slice(0, 10),
+        shiftDate: toIsoDate(r.shift_date),
         startTime: r.start_time.slice(0, 5),
         endTime: r.end_time.slice(0, 5),
         role: r.role,
@@ -42,7 +44,7 @@ transfersRouter.get("/me", requireRole("EMPLOYEE"), async (req, res, next) => {
         status: r.status,
         createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
         targetShiftId: r.target_shift_id ?? null,
-        targetShiftDate: r.target_shift_date ? String(r.target_shift_date).slice(0, 10) : null,
+        targetShiftDate: r.target_shift_date ? toIsoDate(r.target_shift_date) : null,
         targetStartTime: r.target_start_time ? r.target_start_time.slice(0, 5) : null,
         targetEndTime: r.target_end_time ? r.target_end_time.slice(0, 5) : null,
         targetRole: r.target_role ?? null,
@@ -157,6 +159,36 @@ transfersRouter.post("/me/:id/respond", requireRole("EMPLOYEE"), async (req, res
        WHERE id = $1 AND to_user_id = $3 AND status = 'pending'`,
       [req.params.id, body.status, userId]
     );
+
+    const isSwap = Boolean(row.target_shift_id);
+    const responder = await query<{ name: string }>(`SELECT name FROM users WHERE id = $1`, [userId]);
+    const responderName = responder.rows[0]?.name ?? "Your coworker";
+    const accepted = body.status === "accepted";
+
+    if (isSwap) {
+      await createNotification(
+        row.from_user_id,
+        req.auth!.workplaceId!,
+        accepted ? "shift_request_accepted" : "shift_request_rejected",
+        accepted
+          ? `${responderName} accepted your shift request`
+          : `${responderName} declined your shift request`,
+        "/shift-requests",
+        req.params.id
+      );
+    } else {
+      await createNotification(
+        row.from_user_id,
+        req.auth!.workplaceId!,
+        accepted ? "transfer_shift_accepted" : "transfer_shift_rejected",
+        accepted
+          ? `${responderName} accepted your shift transfer`
+          : `${responderName} declined your shift transfer`,
+        "/transfer-shift",
+        req.params.id
+      );
+    }
+
     res.json({ ok: true });
   } catch (e) {
     next(e);

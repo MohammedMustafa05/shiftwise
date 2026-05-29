@@ -1,4 +1,4 @@
-import type { HourlySalesRow } from "@shiftwise/shared";
+import type { HourlySalesRow } from "@shiftagent/shared";
 import { addDays, formatDate, getWeekStart } from "../../utils/dates.js";
 
 /** Build 7×24 rows for a week from fixture entries (sparse → fill zeros). */

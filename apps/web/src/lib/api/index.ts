@@ -1,4 +1,4 @@
-import type { AuthResponse } from '@shiftwise/shared';
+import type { AuthResponse } from '@shiftagent/shared';
 import { apiFetch, API_URL, getToken, ApiError } from './client';
 import {
   mapEmployeeFromApi,
@@ -47,6 +47,12 @@ export const api = {
     return mapEmployeeFromApi(updated);
   },
 
+  async deleteEmployee(workplaceId: string, profileId: string) {
+    return apiFetch<{ ok: boolean }>(`/api/workplace/${workplaceId}/employees/${profileId}`, {
+      method: 'DELETE',
+    });
+  },
+
   async getScheduleByWeek(_workplaceId: string, weekStart: string) {
     try {
       const detail = await apiFetch<{
@@ -54,6 +60,7 @@ export const api = {
         weekStart: string;
         status: 'draft' | 'published';
         exportedAt: string | null;
+        mlMetadata?: Record<string, unknown>;
         shifts: Array<{
           id: string;
           employeeId: string;
