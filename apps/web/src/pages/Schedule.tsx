@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -18,10 +18,10 @@ import {
   startOfWeek,
 } from 'date-fns';
 import { mockShifts, mockSchedule } from '../lib/mockData';
-import type { PreferenceOverride, Role, Schedule, Shift } from '../lib/types';
+import type { Employee, PreferenceOverride, Role, Schedule, Shift } from '../lib/types';
 import { getInitials, getAvatarColor } from '../lib/utils';
 import { api, isApiConfigured, loadScheduleWithEmployees } from '../lib/api';
-import { ApiError, getToken } from '../lib/api/client';
+import { ApiError, getToken, apiFetch } from '../lib/api/client';
 import { useEmployees } from '../hooks/useEmployerApi';
 import {
   buildAiSuggestions,
@@ -97,14 +97,112 @@ function ShiftPill({
   );
 }
 
-type PopoverState = { shift: Shift; x: number; y: number };
+function parseISOSafe(iso: string): Date | null {
+  try {
+    const d = new Date(`${iso.slice(0, 10)}T12:00:00`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  } catch {
+    return null;
+  }
+}
 
-function ShiftPopover({ popover, onClose }: { popover: PopoverState; onClose: () => void }) {
+// ─── Time Wheel Picker ────────────────────────────────────────────────────────
+
+const SCHED_TIME_OPTS: { value: string; label: string }[] = (() => {
+  const opts: { value: string; label: string }[] = [];
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 30) {
+      const value = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+      const period = h < 12 ? 'AM' : 'PM';
+      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+      opts.push({ value, label: `${h12}:${m.toString().padStart(2, '0')} ${period}` });
+    }
+  }
+  return opts;
+})();
+
+const S_ITEM_H = 36;
+const S_COPY_LEN = SCHED_TIME_OPTS.length;
+const S_REPEATED = [...SCHED_TIME_OPTS, ...SCHED_TIME_OPTS, ...SCHED_TIME_OPTS];
+
+function SchedWheelPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const selectedIdx = Math.max(0, SCHED_TIME_OPTS.findIndex((o) => o.value === value));
+
+  useLayoutEffect(() => {
+    if (!containerRef.current) return;
+    const target = (S_COPY_LEN + selectedIdx - 1) * S_ITEM_H;
+    if (Math.abs(containerRef.current.scrollTop - target) > 1) {
+      containerRef.current.scrollTop = target;
+    }
+  }, [selectedIdx]);
+
+  function handleScroll() {
+    const el = containerRef.current;
+    if (!el) return;
+    let { scrollTop } = el;
+    const OFFSET = S_COPY_LEN * S_ITEM_H;
+    if (scrollTop < (S_COPY_LEN - 1) * S_ITEM_H) {
+      el.scrollTop = scrollTop + OFFSET;
+      scrollTop = el.scrollTop;
+    } else if (scrollTop > (2 * S_COPY_LEN - 2) * S_ITEM_H) {
+      el.scrollTop = scrollTop - OFFSET;
+      scrollTop = el.scrollTop;
+    }
+    const absIdx = Math.round(scrollTop / S_ITEM_H) + 1;
+    const realIdx = ((absIdx % S_COPY_LEN) + S_COPY_LEN) % S_COPY_LEN;
+    if (SCHED_TIME_OPTS[realIdx].value !== value) onChange(SCHED_TIME_OPTS[realIdx].value);
+  }
+
+  return (
+    <div style={{ position: 'relative', flex: 1 }}>
+      <style>{`.swp::-webkit-scrollbar{display:none}`}</style>
+      <div style={{ position: 'absolute', top: S_ITEM_H, left: 4, right: 4, height: S_ITEM_H, backgroundColor: UI.accentSoft, borderTop: `1px solid ${UI.border}`, borderBottom: `1px solid ${UI.border}`, borderRadius: 6, pointerEvents: 'none', zIndex: 1 }} />
+      <div
+        ref={containerRef}
+        className="swp"
+        onScroll={handleScroll}
+        style={{ height: S_ITEM_H * 3, overflowY: 'scroll', scrollbarWidth: 'none', backgroundColor: UI.cardAlt, borderRadius: 8, border: `1px solid ${UI.border}`, scrollSnapType: 'y mandatory', overscrollBehavior: 'contain', position: 'relative' }}
+      >
+        {S_REPEATED.map((opt, absIdx) => {
+          const absDist = Math.abs(absIdx - (S_COPY_LEN + selectedIdx));
+          const isCenter = absDist === 0;
+          const localIdx = absIdx % S_COPY_LEN;
+          return (
+            <div
+              key={`${absIdx}-${opt.value}`}
+              onClick={() => { onChange(opt.value); if (containerRef.current) containerRef.current.scrollTop = (S_COPY_LEN + localIdx - 1) * S_ITEM_H; }}
+              style={{ height: S_ITEM_H, display: 'flex', alignItems: 'center', justifyContent: 'center', scrollSnapAlign: 'center', cursor: 'pointer', fontSize: isCenter ? 14 : 12, fontWeight: isCenter ? 600 : 400, color: isCenter ? UI.text : UI.muted, opacity: absDist === 0 ? 1 : absDist === 1 ? 0.5 : 0.2, transform: `scale(${isCenter ? 1 : 0.9})`, transition: 'opacity 0.12s, transform 0.12s', userSelect: 'none' }}
+            >
+              {opt.label}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Edit Shift Popover ───────────────────────────────────────────────────────
+
+type EditPopoverState = { shift: Shift; x: number; y: number };
+
+function EditShiftPopover({
+  popover,
+  onClose,
+  onSave,
+  availGrid,
+}: {
+  popover: EditPopoverState;
+  onClose: () => void;
+  onSave: (shiftId: string, start: string, end: string) => Promise<void>;
+  availGrid: Record<string, string[]> | null;
+}) {
   const ref = useRef<HTMLDivElement>(null);
-  const { shift } = popover;
-  const style = getShiftStyle(shift.start_time, shift.end_time);
-  const hours = shiftDurationFromStrings(shift.start_time, shift.end_time);
-  const day = parseISOSafe(shift.date);
+  const [start, setStart] = useState(popover.shift.start_time.slice(0, 5));
+  const [end, setEnd] = useState(popover.shift.end_time.slice(0, 5));
+  const [saving, setSaving] = useState(false);
+  const day = parseISOSafe(popover.shift.date);
 
   useEffect(() => {
     function handleDown(e: MouseEvent) {
@@ -114,49 +212,109 @@ function ShiftPopover({ popover, onClose }: { popover: PopoverState; onClose: ()
     return () => document.removeEventListener('mousedown', handleDown);
   }, [onClose]);
 
-  const left = Math.min(popover.x, window.innerWidth - 260);
-  const top = Math.min(popover.y + 8, window.innerHeight - 200);
+  const availConflict = useMemo(() => {
+    if (!availGrid || !day) return false;
+    const KEY: Record<number, string> = { 0: 'sunday', 1: 'monday', 2: 'tuesday', 3: 'wednesday', 4: 'thursday', 5: 'friday', 6: 'saturday' };
+    const hours = availGrid[KEY[day.getDay()]] ?? [];
+    if (!hours.length) return false;
+    const startH = parseInt(start.split(':')[0], 10);
+    const endH = parseInt(end.split(':')[0], 10);
+    for (let h = startH; h < endH; h++) {
+      if (!hours.includes(`${h.toString().padStart(2, '0')}:00`)) return true;
+    }
+    return false;
+  }, [availGrid, day, start, end]);
+
+  const popoverW = 300;
+  const popoverH = 360;
+  const left = Math.min(Math.max(8, popover.x - popoverW / 2), window.innerWidth - popoverW - 8);
+  const top = Math.min(popover.y + 12, window.innerHeight - popoverH - 8);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await onSave(popover.shift.id, start, end);
+    } finally {
+      setSaving(false);
+    }
+    onClose();
+  }
 
   return (
-    <div
-      ref={ref}
-      className="fixed z-50 w-64 rounded-xl p-4 shadow-xl"
-      style={{ left, top, backgroundColor: UI.card, border: `1px solid ${UI.border}` }}
-    >
-      <div className="text-sm font-semibold mb-1" style={{ color: UI.text }}>
-        {shift.employee?.name ?? 'Unassigned'}
+    <div ref={ref} className="fixed z-50 rounded-xl shadow-xl" style={{ left, top, width: popoverW, backgroundColor: UI.card, border: `1px solid ${UI.border}` }}>
+      <div className="p-4">
+        <div className="text-sm font-semibold mb-0.5" style={{ color: UI.text }}>{popover.shift.employee?.name ?? 'Unassigned'}</div>
+        <div className="text-xs mb-3" style={{ color: UI.muted }}>{day ? format(day, 'EEEE, MMM d') : popover.shift.date}</div>
+        {availConflict && (
+          <div className="text-xs mb-3" style={{ color: '#F87171' }}>Outside this employee's available hours</div>
+        )}
+        <div className="flex gap-3 mb-4">
+          <div style={{ flex: 1 }}>
+            <div className="text-xs mb-1.5 font-medium" style={{ color: UI.muted }}>Start</div>
+            <SchedWheelPicker value={start} onChange={setStart} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div className="text-xs mb-1.5 font-medium" style={{ color: UI.muted }}>End</div>
+            <SchedWheelPicker value={end} onChange={setEnd} />
+          </div>
+        </div>
+        <button type="button" onClick={() => void handleSave()} disabled={saving} className="w-full py-2 rounded-lg text-sm font-semibold mb-2 disabled:opacity-60" style={{ backgroundColor: UI.accent, color: '#FFFFFF' }}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button type="button" onClick={onClose} className="w-full py-1.5 text-xs font-medium" style={{ color: UI.muted }}>
+          Cancel
+        </button>
       </div>
-      <div className="text-xs mb-3" style={{ color: UI.muted }}>
-        {day ? format(day, 'EEEE, MMM d') : shift.date}
-      </div>
-      <div
-        className="inline-flex px-2.5 py-1 rounded-full text-xs font-bold mb-3"
-        style={{ backgroundColor: style.bg, color: style.text }}
-      >
-        {formatShiftPillLabel(shift.start_time, shift.end_time)}
-      </div>
-      <div className="space-y-1 text-xs" style={{ color: UI.muted }}>
-        <div><span style={{ color: UI.text }}>Duration:</span> {hours} hours</div>
-        <div><span style={{ color: UI.text }}>Role:</span> {shift.role}</div>
-      </div>
-      <button
-        type="button"
-        className="mt-4 w-full py-2 rounded-lg text-xs font-semibold"
-        style={{ backgroundColor: UI.accent, color: '#FFFFFF' }}
-      >
-        Edit
-      </button>
     </div>
   );
 }
 
-function parseISOSafe(iso: string): Date | null {
-  try {
-    const d = new Date(`${iso.slice(0, 10)}T12:00:00`);
-    return Number.isNaN(d.getTime()) ? null : d;
-  } catch {
-    return null;
-  }
+// ─── Role Conflict Toast + Warnings ──────────────────────────────────────────
+
+function RoleConflictToast({ msg, onClose }: { msg: string; onClose: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 3000);
+    return () => clearTimeout(t);
+  }, [onClose]);
+  return (
+    <div className="fixed bottom-6 right-6 z-50 px-4 py-2 rounded-lg text-sm" style={{ backgroundColor: 'rgba(248,113,113,0.2)', color: '#F87171', border: '1px solid rgba(248,113,113,0.3)' }}>
+      {msg}
+    </div>
+  );
+}
+
+function ScheduleToast({ toast, onClose }: { toast: { type: 'success' | 'error'; msg: string }; onClose: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, toast.type === 'success' ? 2000 : 3000);
+    return () => clearTimeout(t);
+  }, [toast, onClose]);
+  const isError = toast.type === 'error';
+  return (
+    <div
+      className="fixed bottom-6 right-6 z-50 px-4 py-2 rounded-lg text-sm"
+      style={isError
+        ? { backgroundColor: 'rgba(248,113,113,0.2)', color: '#F87171', border: '1px solid rgba(248,113,113,0.3)' }
+        : { backgroundColor: '#16161F', color: '#F1F5F9', border: '1px solid #1E1E2A' }
+      }
+    >
+      {toast.msg}
+    </div>
+  );
+}
+
+function RoleConflictsWarning({ warnings }: { warnings: string[] }) {
+  if (!warnings.length) return null;
+  return (
+    <div className="mb-4 rounded-lg px-4 py-3" style={{ backgroundColor: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)' }}>
+      <div className="text-sm font-semibold mb-1.5" style={{ color: '#F87171' }}>⚠ Role Conflicts Detected</div>
+      <ul className="space-y-0.5">
+        {warnings.map((w, i) => (
+          <li key={i} className="text-xs" style={{ color: '#FCA5A5' }}>• {w}</li>
+        ))}
+      </ul>
+      <div className="text-xs mt-2" style={{ color: '#F87171', opacity: 0.7 }}>Resolve before publishing: each employee can only have one role per day.</div>
+    </div>
+  );
 }
 
 // ─── AI Suggestions ───────────────────────────────────────────────────────────
@@ -361,11 +519,22 @@ export default function Schedule() {
   const [shifts, setShifts] = useState<Shift[]>(isApiConfigured ? [] : mockShifts);
   const [suggestionStates, setSuggestionStates] = useState<Record<string, AISuggestionStatus>>({});
   const [roleFilter, setRoleFilter] = useState<Role | 'all'>('all');
-  const [popover, setPopover] = useState<PopoverState | null>(null);
+  const [popover, setPopover] = useState<EditPopoverState | null>(null);
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [loading, setLoading] = useState(isApiConfigured);
+  const [employeeAvailMap, setEmployeeAvailMap] = useState<Map<string, Record<string, string[]>>>(new Map());
+  const [roleConflictToast, setRoleConflictToast] = useState<string | null>(null);
+  const [lockedTooltip, setLockedTooltip] = useState<{ x: number; y: number } | null>(null);
+  const [roleWarnings, setRoleWarnings] = useState<string[]>([]);
+  const [scheduleToast, setScheduleToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+
+  useEffect(() => {
+    if (!lockedTooltip) return;
+    const t = setTimeout(() => setLockedTooltip(null), 2000);
+    return () => clearTimeout(t);
+  }, [lockedTooltip]);
 
   const weekDays = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
@@ -387,6 +556,55 @@ export default function Schedule() {
         setSchedule(mapped.schedule);
         setShifts(mapped.shifts);
         setSuggestionStates({});
+
+        // Check for one-role-per-day violations
+        const byEmpDay = new Map<string, Set<string>>();
+        for (const s of mapped.shifts) {
+          const key = `${s.employee_id}|${s.date}`;
+          const roles = byEmpDay.get(key) ?? new Set<string>();
+          roles.add(s.role);
+          byEmpDay.set(key, roles);
+        }
+        const warns: string[] = [];
+        for (const [key, roles] of byEmpDay) {
+          if (roles.size > 1) {
+            const sepIdx = key.indexOf('|');
+            const empId = key.slice(0, sepIdx);
+            const date = key.slice(sepIdx + 1);
+            const emp = employees.find((e) => e.id === empId);
+            const empName = emp?.name ?? 'Employee';
+            const d = parseISOSafe(date);
+            const dateLabel = d ? format(d, 'EEE MMM d') : date;
+            warns.push(`${empName} is already scheduled as ${[...roles].join(' and ')} on ${dateLabel}`);
+          }
+        }
+        setRoleWarnings(warns);
+        if (warns.length > 0) setRoleConflictToast(warns[0]);
+
+        // Fetch approved availability for in-popover conflict check
+        if (isApiConfigured) {
+          try {
+            const availRaw = await apiFetch<Array<{ employeeId: string; availabilityGrid: Record<string, string[]> }>>(
+              '/api/approvals/availability?status=approved',
+            );
+            const amap = new Map<string, Record<string, string[]>>();
+            for (const item of availRaw) {
+              if (!item.employeeId || !item.availabilityGrid) continue;
+              const emp = employees.find(
+                (e) => (e as Employee & { userId?: string }).userId === item.employeeId,
+              );
+              if (emp) {
+                amap.set(emp.id, item.availabilityGrid);
+                amap.set(item.employeeId, item.availabilityGrid);
+              } else {
+                amap.set(item.employeeId, item.availabilityGrid);
+              }
+            }
+            setEmployeeAvailMap(amap);
+          } catch {
+            /* no availability data — conflict check disabled */
+          }
+        }
       } else {
         setSchedule({
           id: '',
@@ -397,6 +615,7 @@ export default function Schedule() {
         });
         setShifts([]);
         setSuggestionStates({});
+        setRoleWarnings([]);
       }
     } catch {
       /* keep previous */
@@ -524,6 +743,21 @@ export default function Schedule() {
     URL.revokeObjectURL(url);
   }
 
+  async function handleEditSave(shiftId: string, newStart: string, newEnd: string) {
+    const updates = { start_time: `${newStart}:00`, end_time: `${newEnd}:00` };
+    const prevShifts = shifts;
+    setShifts((prev) => prev.map((s) => s.id === shiftId ? { ...s, ...updates } : s));
+    if (isApiConfigured && schedule.id) {
+      try {
+        await api.updateShift(schedule.id, shiftId, updates, employees);
+        setScheduleToast({ type: 'success', msg: 'Saved' });
+      } catch {
+        setShifts(prevShifts);
+        setScheduleToast({ type: 'error', msg: 'Failed to save changes — please try again' });
+      }
+    }
+  }
+
   async function applyAiSuggestion(id: string) {
     const suggestion = aiSuggestions.find((s) => s.id === id);
     if (!suggestion || !schedule.id) return;
@@ -592,6 +826,8 @@ export default function Schedule() {
           {generateError}
         </div>
       )}
+
+      <RoleConflictsWarning warnings={roleWarnings} />
 
       {/* Toolbar */}
       <div className="flex items-center justify-between mb-5 flex-wrap gap-4">
@@ -807,7 +1043,11 @@ export default function Schedule() {
                                   shift={shift}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setPopover({ shift, x: e.clientX, y: e.clientY });
+                                    if (shift.is_locked) {
+                                      setLockedTooltip({ x: e.clientX, y: e.clientY });
+                                    } else {
+                                      setPopover({ shift, x: e.clientX, y: e.clientY });
+                                    }
                                   }}
                                 />
                               ))}
@@ -869,7 +1109,31 @@ export default function Schedule() {
         />
       )}
 
-      {popover && <ShiftPopover popover={popover} onClose={() => setPopover(null)} />}
+      {popover && (
+        <EditShiftPopover
+          popover={popover}
+          onClose={() => setPopover(null)}
+          onSave={handleEditSave}
+          availGrid={employeeAvailMap.get(popover.shift.employee_id) ?? null}
+        />
+      )}
+
+      {lockedTooltip && (
+        <div
+          className="fixed z-50 rounded-lg px-3 py-2 text-xs font-medium shadow-xl pointer-events-none"
+          style={{ left: lockedTooltip.x, top: lockedTooltip.y + 8, backgroundColor: UI.card, border: `1px solid ${UI.border}`, color: UI.muted }}
+        >
+          Unlock this shift to edit
+        </div>
+      )}
+
+      {roleConflictToast && (
+        <RoleConflictToast msg={roleConflictToast} onClose={() => setRoleConflictToast(null)} />
+      )}
+
+      {scheduleToast && (
+        <ScheduleToast toast={scheduleToast} onClose={() => setScheduleToast(null)} />
+      )}
     </div>
   );
 }

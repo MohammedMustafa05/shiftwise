@@ -8,7 +8,9 @@ export type AnnouncementType =
   | "transfer_shift_rejected"
   | "offer_shift_accepted"
   | "availability_accepted"
-  | "availability_rejected";
+  | "availability_rejected"
+  | "shift_offer"
+  | "shift_exchange";
 
 export type AnnouncementItem = {
   id: string;
@@ -17,6 +19,8 @@ export type AnnouncementItem = {
   type: AnnouncementType;
   route: string;
   read: boolean;
+  relatedShiftId?: string;
+  actionTaken?: string;
 };
 
 const ICONS: Record<AnnouncementType, string> = {
@@ -30,6 +34,8 @@ const ICONS: Record<AnnouncementType, string> = {
   offer_shift_accepted: "users",
   availability_accepted: "check-circle",
   availability_rejected: "x-circle",
+  shift_offer: "gift",
+  shift_exchange: "repeat",
 };
 
 export function announcementIcon(type: AnnouncementType): string {
@@ -48,4 +54,6 @@ export const ANNOUNCEMENT_ROUTES: Record<AnnouncementType, string> = {
   offer_shift_accepted: "/offer-shift",
   availability_accepted: "/(tabs)/availability",
   availability_rejected: "/(tabs)/availability",
+  shift_offer: "/(tabs)/schedule",
+  shift_exchange: "/(tabs)/schedule",
 };

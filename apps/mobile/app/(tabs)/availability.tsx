@@ -15,14 +15,14 @@ import { getStoredUser } from "../../lib/api";
 import { useEmployeeRealtime } from "../../lib/useEmployeeRealtime";
 
 const C = {
-  background: "#F0F4FF",
-  surface: "#FFFFFF",
-  primary: "#4F46E5",
-  primaryTint: "rgba(79, 70, 229, 0.08)",
-  textPrimary: "#0F172A",
-  textMuted: "#94A3B8",
-  textSecondary: "#64748B",
-  border: "#E2E8F0",
+  background: "#0A0A0F",
+  surface: "#16161F",
+  primary: "#818CF8",
+  primaryTint: "rgba(129,140,248,0.12)",
+  textPrimary: "#F1F5F9",
+  textMuted: "#475569",
+  textSecondary: "#94A3B8",
+  border: "#1E1E2A",
   textLight: "#FFFFFF",
 };
 
@@ -76,6 +76,9 @@ export default function AvailabilityScreen() {
   const [verified, setVerified] = useState(false);
   const [userId, setUserId] = useState<string | undefined>();
   const [workplaceId, setWorkplaceId] = useState<string | undefined>();
+  const [saveMode, setSaveMode] = useState<"this_week" | "default">("this_week");
+  const [submitResult, setSubmitResult] = useState<"this_week" | "default" | null>(null);
+  const [isRejected, setIsRejected] = useState(false);
 
   useEffect(() => {
     void getStoredUser().then((u) => {
@@ -102,6 +105,7 @@ export default function AvailabilityScreen() {
         if (rows.length > 0) {
           setHasSubmitted(true);
           setVerified(Boolean(rows[0]?.confirmed) && Boolean(rows[0]?.managerApproved));
+          setIsRejected(rows[0]?.status === "rejected");
         }
       })
       .catch(() => undefined)
@@ -150,6 +154,14 @@ export default function AvailabilityScreen() {
     });
   };
 
+  const onResubmit = () => {
+    setIsRejected(false);
+    setHasSubmitted(false);
+    setSelected({});
+    setDayOff({});
+    setSubmitResult(null);
+  };
+
   const onContinue = async () => {
     if (totalHours < 24) {
       Alert.alert(
@@ -179,7 +191,11 @@ export default function AvailabilityScreen() {
           endTime: "00:00",
         }));
       await api.saveAvailability([...blocks, ...offBlocks]);
-      Alert.alert("Submitted", "Your availability has been sent to your manager.");
+      if (saveMode === "default") {
+        setSubmitResult("default");
+      } else {
+        Alert.alert("Submitted", "Your availability has been sent to your manager.");
+      }
     } catch (e) {
       Alert.alert("Error", e instanceof Error ? e.message : "Could not save availability");
     } finally {
@@ -204,7 +220,19 @@ export default function AvailabilityScreen() {
         <Text style={styles.title}>My Availability</Text>
         <Text style={styles.subtitle}>Select your available time blocks for each day</Text>
 
-        {hasSubmitted ? (
+        {isRejected ? (
+          <View style={styles.rejectionBanner}>
+            <View style={styles.rejectionRow}>
+              <Feather name="x-circle" size={16} color="#F87171" style={{ marginRight: 8 }} />
+              <Text style={styles.rejectionText}>
+                Your availability was not approved. Please update and resubmit.
+              </Text>
+            </View>
+            <Pressable style={styles.resubmitBtn} onPress={onResubmit}>
+              <Text style={styles.resubmitText}>Resubmit Availability</Text>
+            </Pressable>
+          </View>
+        ) : hasSubmitted ? (
           <View style={[styles.statusBadge, verified ? styles.statusVerified : styles.statusPending]}>
             <Feather
               name={verified ? "check-circle" : "clock"}
@@ -262,9 +290,37 @@ export default function AvailabilityScreen() {
             </View>
           );
         })}
+
+        {submitResult === "default" ? (
+          <View style={styles.confirmBanner}>
+            <Feather name="check-circle" size={16} color="#34D399" style={{ marginRight: 8 }} />
+            <Text style={styles.confirmBannerText}>
+              Your default availability has been updated. This will apply to all future weeks.
+            </Text>
+          </View>
+        ) : null}
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
+        <Text style={styles.modeQuestion}>Apply this availability to future weeks?</Text>
+        <View style={styles.modeRow}>
+          <Pressable
+            style={[styles.modePill, saveMode === "this_week" && styles.modePillActive]}
+            onPress={() => setSaveMode("this_week")}
+          >
+            <Text style={[styles.modePillText, saveMode === "this_week" && styles.modePillTextActive]}>
+              This week only
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.modePill, saveMode === "default" && styles.modePillActive]}
+            onPress={() => setSaveMode("default")}
+          >
+            <Text style={[styles.modePillText, saveMode === "default" && styles.modePillTextActive]}>
+              Save as my default
+            </Text>
+          </Pressable>
+        </View>
         <Pressable
           style={[styles.continueBtn, saving && styles.continueBtnDisabled]}
           onPress={() => void onContinue()}
@@ -364,4 +420,89 @@ const styles = StyleSheet.create({
   },
   continueBtnDisabled: { opacity: 0.7 },
   continueText: { color: C.textLight, fontSize: 16, fontWeight: "600" },
+  modeQuestion: {
+    fontSize: 13,
+    color: C.textSecondary,
+    fontWeight: "500",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  modeRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 10,
+  },
+  modePill: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+    alignItems: "center",
+  },
+  modePillActive: {
+    borderColor: C.primary,
+    backgroundColor: C.primaryTint,
+  },
+  modePillText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: C.textSecondary,
+  },
+  modePillTextActive: {
+    color: C.primary,
+  },
+  rejectionBanner: {
+    backgroundColor: "rgba(248,113,113,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(248,113,113,0.25)",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 14,
+  },
+  rejectionRow: {
+    flexDirection: "row" as const,
+    alignItems: "flex-start" as const,
+  },
+  rejectionText: {
+    flex: 1,
+    fontSize: 13,
+    color: "#F87171",
+    lineHeight: 18,
+  },
+  resubmitBtn: {
+    marginTop: 10,
+    alignSelf: "flex-start" as const,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(248,113,113,0.40)",
+    backgroundColor: "rgba(248,113,113,0.12)",
+  },
+  resubmitText: {
+    fontSize: 13,
+    fontWeight: "700" as const,
+    color: "#F87171",
+  },
+  confirmBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "rgba(16, 185, 129, 0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(16, 185, 129, 0.20)",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  confirmBannerText: {
+    flex: 1,
+    fontSize: 13,
+    color: "#34D399",
+    lineHeight: 18,
+  },
 });

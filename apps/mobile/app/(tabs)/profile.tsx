@@ -31,6 +31,7 @@ export default function ProfileScreen() {
   const [phoneError, setPhoneError] = useState("");
   const [roles, setRoles] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [workplaceName, setWorkplaceName] = useState("");
 
   const [userId, setUserId] = useState<string | undefined>();
   const [workplaceId, setWorkplaceId] = useState<string | undefined>();
@@ -57,6 +58,7 @@ export default function ProfileScreen() {
       setPreferredName(me.preferredName ?? me.name);
       setPhone(me.phone ?? "");
       setRoles(me.roles?.length ? me.roles : [me.role]);
+      setWorkplaceName(me.workplaceName ?? "");
     }).catch(() => undefined);
   }, []);
 
@@ -126,24 +128,36 @@ export default function ProfileScreen() {
 
   const canSave = isNumericPhone(phone) && !saving;
 
+  function roleBadgeColor(role: string): { bg: string; text: string } {
+    const r = role.toLowerCase();
+    if (r.includes("cook")) return { bg: "rgba(248,113,113,0.15)", text: "#F87171" };
+    if (r.includes("pack")) return { bg: "rgba(52,211,153,0.15)", text: "#34D399" };
+    if (r.includes("cashier")) return { bg: "rgba(129,140,248,0.15)", text: "#818CF8" };
+    return { bg: "rgba(129,140,248,0.15)", text: "#818CF8" };
+  }
+
   return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={[
-        styles.content,
-        { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 24 },
-      ]}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.header}>
-        <View style={styles.avatar}>
-          <Text style={styles.initials}>{user.initials}</Text>
+    <View style={styles.screen}>
+      <View style={[styles.headerCard, { paddingTop: insets.top + 16 }]}>
+        <Text style={styles.headerName}>{user.name}</Text>
+        <View style={styles.badgeRow}>
+          {roles.map((role) => {
+            const bc = roleBadgeColor(role);
+            return (
+              <View key={role} style={[styles.badge, { backgroundColor: bc.bg }]}>
+                <Text style={[styles.badgeText, { color: bc.text }]}>{role}</Text>
+              </View>
+            );
+          })}
         </View>
-        <Text style={styles.name}>{user.name}</Text>
-        <Text style={styles.role}>
-          {roles.join(" · ")} · {user.employmentType}
-        </Text>
+        {workplaceName ? <Text style={styles.storeName}>{workplaceName}</Text> : null}
       </View>
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
+        showsVerticalScrollIndicator={false}
+      >
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Profile details</Text>
@@ -216,26 +230,31 @@ export default function ProfileScreen() {
         <Feather name="log-out" size={18} color={Colors.textPrimary} />
         <Text style={styles.signOutText}>Sign Out</Text>
       </Pressable>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: Colors.background },
-  content: { paddingHorizontal: 16 },
-  header: { alignItems: "center", marginBottom: 20 },
-  avatar: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: Colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 14,
+  screen: { flex: 1, backgroundColor: Colors.background },
+  headerCard: {
+    backgroundColor: "#16161F",
+    borderBottomWidth: 1,
+    borderBottomColor: "#1E1E2A",
+    paddingHorizontal: 24,
+    paddingBottom: 24,
   },
-  initials: { fontSize: 32, fontWeight: "700", color: Colors.textLight },
-  name: { fontSize: 24, fontWeight: "700", color: Colors.textPrimary },
-  role: { fontSize: 15, color: Colors.textSecondary, marginTop: 4, textAlign: "center" },
+  headerName: { fontSize: 24, fontWeight: "700", color: "#F1F5F9", marginBottom: 10 },
+  badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  badgeText: { fontSize: 12, fontWeight: "700" },
+  storeName: { fontSize: 14, color: "#475569", marginTop: 2 },
+  scroll: { flex: 1, backgroundColor: Colors.background },
+  content: { paddingHorizontal: 16, paddingTop: 16 },
   card: {
     backgroundColor: Colors.card,
     borderRadius: 16,

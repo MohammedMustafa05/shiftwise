@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -85,7 +86,6 @@ export default function OfferShiftScreen() {
     try {
       await api.postOpenShift(selected, note.trim() || undefined);
       setPosted(true);
-      setTimeout(() => router.back(), 2000);
     } catch (e) {
       Alert.alert("Post failed", e instanceof Error ? e.message : "Please try again");
     } finally {
@@ -156,14 +156,6 @@ export default function OfferShiftScreen() {
             onChangeText={setNote}
           />
 
-          {posted ? (
-            <View style={styles.successCard}>
-              <Feather name="check-circle" size={36} color={Colors.success} />
-              <Text style={styles.successTitle}>Shift Posted!</Text>
-              <Text style={styles.successSub}>Your team can now claim this shift</Text>
-              <ActivityIndicator color={Colors.primary} style={{ marginTop: 8 }} />
-            </View>
-          ) : null}
         </ScrollView>
       )}
 
@@ -180,6 +172,24 @@ export default function OfferShiftScreen() {
           )}
         </Pressable>
       </View>
+
+      <Modal visible={posted} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Feather name="check-circle" size={48} color="#34D399" />
+            <Text style={styles.modalTitle}>Shift Posted!</Text>
+            {(() => {
+              const s = shifts.find((x) => x.id === selected);
+              return s ? (
+                <Text style={styles.modalBody}>{s.date}{"\n"}{s.time}</Text>
+              ) : null;
+            })()}
+            <Pressable style={styles.modalDoneBtn} onPress={() => router.back()}>
+              <Text style={styles.modalDoneText}>Done</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -206,9 +216,12 @@ const styles = StyleSheet.create({
   infoText: { flex: 1, fontSize: 12, lineHeight: 18, color: Colors.primary },
   noteLabel: { fontSize: 13, color: Colors.textSecondary, fontWeight: "600", marginTop: 16, marginBottom: 8 },
   noteInput: { height: 46, borderRadius: 12, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.surface, paddingHorizontal: 12, color: Colors.textPrimary, fontSize: 14 },
-  successCard: { marginTop: 16, backgroundColor: Colors.surface, borderWidth: 1, borderColor: "#86EFAC", borderRadius: 14, padding: 16, alignItems: "center" },
-  successTitle: { marginTop: 6, fontSize: 18, fontWeight: "700", color: Colors.success },
-  successSub: { marginTop: 4, fontSize: 13, color: Colors.textMuted },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.75)", alignItems: "center", justifyContent: "center" },
+  modalCard: { backgroundColor: "#16161F", borderRadius: 20, padding: 32, alignItems: "center", width: 300, borderWidth: 1, borderColor: "#1E1E2A" },
+  modalTitle: { fontSize: 22, fontWeight: "700", color: "#F1F5F9", marginTop: 16, marginBottom: 8 },
+  modalBody: { fontSize: 14, color: "#94A3B8", textAlign: "center", lineHeight: 20, marginBottom: 24 },
+  modalDoneBtn: { backgroundColor: "#818CF8", borderRadius: 12, height: 46, width: 180, alignItems: "center", justifyContent: "center" },
+  modalDoneText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
   footer: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: Colors.background, borderTopWidth: 1, borderTopColor: Colors.border, paddingHorizontal: 16, paddingTop: 12 },
   btn: { height: 50, borderRadius: 12, backgroundColor: Colors.primary, alignItems: "center", justifyContent: "center" },
   btnDisabled: { opacity: 0.45 },

@@ -335,7 +335,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <div className="rounded-xl p-6 flex flex-col" style={{ backgroundColor: '#27272A', border: '1px solid #3F3F46', boxShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
           <div className="flex items-center gap-2 mb-4">
             <Bell size={15} style={{ color: '#818CF8' }} />
@@ -379,48 +379,6 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-xl p-6" style={{ backgroundColor: '#27272A', border: '1px solid #3F3F46', boxShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
-          <div className="text-sm font-medium mb-4" style={{ color: '#FAFAFA' }}>Quick Actions</div>
-          <div className="space-y-3">
-            {[
-              {
-                label: 'Review Approvals',
-                desc: `${pendingCount} request${pendingCount !== 1 ? 's' : ''} awaiting your decision`,
-                icon: ClipboardCheck,
-                color: '#818CF8',
-                bg: 'rgba(129,140,248,0.15)',
-                action: () => navigate('/approvals'),
-              },
-              {
-                label: 'Add Employee',
-                desc: 'Onboard a new team member',
-                icon: UserPlus,
-                color: '#34D399',
-                bg: 'rgba(52,211,153,0.125)',
-                action: () => navigate('/employees'),
-              },
-            ].map(({ label, desc, icon: Icon, color, bg, action }) => (
-              <button
-                key={label}
-                onClick={action}
-                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all text-left"
-                style={{ backgroundColor: '#18181B', border: '1px solid #3F3F46' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = '#818CF8'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = '#3F3F46'}
-              >
-                <div className="flex items-center justify-center w-9 h-9 rounded-lg shrink-0" style={{ backgroundColor: bg }}>
-                  <Icon size={16} style={{ color }} />
-                </div>
-                <div>
-                  <div className="text-sm font-medium" style={{ color: '#FAFAFA' }}>{label}</div>
-                  <div className="text-xs mt-0.5" style={{ color: '#71717A' }}>{desc}</div>
-                </div>
-                <ArrowRight size={14} className="ml-auto" style={{ color: '#71717A' }} />
-              </button>
             ))}
           </div>
         </div>

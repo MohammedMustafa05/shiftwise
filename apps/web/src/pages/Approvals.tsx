@@ -8,6 +8,7 @@ import { apiFetch } from '../lib/api/client';
 import { mapAvailabilityFromApi } from '../lib/api/mappers';
 import { useEmployees } from '../hooks/useEmployerApi';
 import { DAY_KEYS, DAY_LABELS, DAY_FULL, getRoleBadgeClass, getInitials, getAvatarColor } from '../lib/utils';
+import { approvalChangeSignal } from '../hooks/approvalChangeSignal';
 import {
   compareAvailabilityToPrevious,
   getPreviousApprovedForRequest,
@@ -138,15 +139,15 @@ function AvailabilityBlocksGrid({
 function StatusBadge({ status }: { status: ApprovalStatus }) {
   if (status === 'approved') {
     return (
-      <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-        style={{ backgroundColor: 'rgba(52,211,153,0.12)', color: '#34D399', border: '1px solid rgba(52,211,153,0.2)' }}>
+      <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
+        style={{ backgroundColor: 'rgba(52,211,153,0.10)', color: '#34D399' }}>
         <CheckCircle2 size={11} /> Approved
       </span>
     );
   }
   return (
-    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-      style={{ backgroundColor: 'rgba(248,113,113,0.12)', color: '#F87171', border: '1px solid rgba(248,113,113,0.2)' }}>
+    <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
+      style={{ backgroundColor: 'rgba(248,113,113,0.10)', color: '#F87171' }}>
       <XCircle size={11} /> Rejected
     </span>
   );
@@ -224,6 +225,7 @@ function EmployeeRow({ request }: { request: AvailabilityRequest | TimeOffReques
 }
 
 type TabType = 'availability' | 'timeoff';
+type UndoEntry = { type: 'availability' | 'timeoff'; prevStatus: ApprovalStatus };
 
 export default function Approvals() {
   const { employees } = useEmployees();
@@ -233,7 +235,15 @@ export default function Approvals() {
   const [activeTab, setActiveTab] = useState<TabType>('availability');
   const [availStatuses, setAvailStatuses] = useState<Record<string, ApprovalStatus>>({});
   const [timeOffStatuses, setTimeOffStatuses] = useState<Record<string, ApprovalStatus>>({});
-  const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [pendingUndoMap, setPendingUndoMap] = useState<Map<string, UndoEntry>>(new Map());
+  const [errorToast, setErrorToast] = useState<string | null>(null);
+  const [showPendingOnly, setShowPendingOnly] = useState(false);
+
+  useEffect(() => {
+    if (!errorToast) return;
+    const t = setTimeout(() => setErrorToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [errorToast]);
 
   useEffect(() => {
     if (!isApiConfigured) {
@@ -272,31 +282,69 @@ export default function Approvals() {
     return out;
   }, [availRequests, approvedAvailability]);
 
-  async function setAvailStatus(id: string, status: ApprovalStatus) {
-    const previous = availStatuses[id] ?? availRequests.find((r) => r.id === id)?.status ?? 'pending';
-    setAvailStatuses((s) => ({ ...s, [id]: status }));
-    setApprovalError(null);
-    if (isApiConfigured && status !== 'pending') {
-      try {
-        await api.updateAvailabilityStatus(id, status as 'approved' | 'rejected');
-        if (status === 'approved') {
-          const approvedRaw = await apiFetch<Array<Parameters<typeof mapAvailabilityFromApi>[0][number]>>(
-            '/api/approvals/availability?status=approved',
-          );
-          setApprovedAvailability(mapAvailabilityFromApi(approvedRaw, employees));
+  async function handleAction(id: string, type: 'availability' | 'timeoff', newStatus: 'approved' | 'rejected') {
+    const prevStatus: ApprovalStatus = type === 'availability'
+      ? (availStatuses[id] ?? 'pending')
+      : (timeOffStatuses[id] ?? 'pending');
+
+    if (type === 'availability') {
+      setAvailStatuses(s => ({ ...s, [id]: newStatus }));
+    } else {
+      setTimeOffStatuses(s => ({ ...s, [id]: newStatus }));
+    }
+    setPendingUndoMap(m => new Map([...m, [id, { type, prevStatus }]]));
+
+    approvalChangeSignal.emit();
+
+    if (!isApiConfigured) return;
+    try {
+      if (type === 'availability') {
+        await api.updateAvailabilityStatus(id, newStatus);
+        if (newStatus === 'approved') {
+          try {
+            const approvedRaw = await apiFetch<Array<Parameters<typeof mapAvailabilityFromApi>[0][number]>>(
+              '/api/approvals/availability?status=approved',
+            );
+            setApprovedAvailability(mapAvailabilityFromApi(approvedRaw, employees));
+          } catch { /* non-critical */ }
         }
-      } catch (e) {
-        setAvailStatuses((s) => ({ ...s, [id]: previous }));
-        setApprovalError(e instanceof Error ? e.message : 'Could not save approval status');
-        throw e;
+      } else {
+        await api.updateTimeOffStatus(id, newStatus);
       }
+    } catch {
+      if (type === 'availability') {
+        setAvailStatuses(s => ({ ...s, [id]: prevStatus }));
+      } else {
+        setTimeOffStatuses(s => ({ ...s, [id]: prevStatus }));
+      }
+      setPendingUndoMap(m => { const n = new Map(m); n.delete(id); return n; });
+      approvalChangeSignal.emit();
+      setErrorToast('Failed to update — please try again');
     }
   }
 
-  async function setTimeOffStatus(id: string, status: ApprovalStatus) {
-    setTimeOffStatuses(s => ({ ...s, [id]: status }));
-    if (isApiConfigured && status !== 'pending') {
-      await api.updateTimeOffStatus(id, status as 'approved' | 'rejected');
+  async function handleUndo(id: string) {
+    const entry = pendingUndoMap.get(id);
+    if (!entry) return;
+    const { type, prevStatus } = entry;
+
+    if (type === 'availability') {
+      setAvailStatuses(s => ({ ...s, [id]: prevStatus }));
+    } else {
+      setTimeOffStatuses(s => ({ ...s, [id]: prevStatus }));
+    }
+    setPendingUndoMap(m => { const n = new Map(m); n.delete(id); return n; });
+    approvalChangeSignal.emit();
+
+    if (!isApiConfigured) return;
+    try {
+      if (type === 'availability') {
+        await api.updateAvailabilityStatus(id, prevStatus);
+      } else {
+        await api.updateTimeOffStatus(id, prevStatus);
+      }
+    } catch {
+      setErrorToast('Failed to update — please try again');
     }
   }
 
@@ -308,6 +356,13 @@ export default function Approvals() {
     { id: 'availability', label: 'Availability Requests', count: pendingAvail },
     { id: 'timeoff', label: 'Time Off', count: pendingTimeOff },
   ];
+
+  const visibleAvail = showPendingOnly
+    ? availRequests.filter(r => availStatuses[r.id] === 'pending')
+    : availRequests;
+  const visibleTimeOff = showPendingOnly
+    ? timeOffRequests.filter(r => timeOffStatuses[r.id] === 'pending')
+    : timeOffRequests;
 
   return (
     <div className="p-8">
@@ -329,17 +384,18 @@ export default function Approvals() {
             Review and respond to employee requests
           </p>
         </div>
+        <button
+          onClick={() => setShowPendingOnly(v => !v)}
+          className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+          style={showPendingOnly
+            ? { backgroundColor: 'rgba(129,140,248,0.15)', color: '#818CF8', border: '1px solid rgba(129,140,248,0.3)' }
+            : { backgroundColor: 'transparent', color: '#A1A1AA', border: '1px solid #3F3F46' }}
+        >
+          {showPendingOnly ? 'Pending Only' : 'Show All'}
+        </button>
       </div>
 
       {/* Tabs */}
-      {approvalError && (
-        <div
-          className="mb-4 rounded-lg px-4 py-3 text-sm"
-          style={{ backgroundColor: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.35)', color: '#FCA5A5' }}
-        >
-          {approvalError}
-        </div>
-      )}
       <div className="flex gap-1 p-1 mb-6 rounded-xl w-fit" style={{ backgroundColor: '#27272A', border: '1px solid #3F3F46' }}>
         {tabs.map(tab => (
           <button
@@ -374,18 +430,21 @@ export default function Approvals() {
       {/* Availability Requests Tab */}
       {activeTab === 'availability' && (
         <div className="space-y-4">
-          {availRequests.length === 0 ? (
+          {visibleAvail.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 rounded-xl"
               style={{ backgroundColor: '#27272A', border: '1px solid #3F3F46' }}>
               <ClipboardCheck size={36} style={{ color: '#3F3F46' }} />
               <div className="text-sm font-medium mt-3" style={{ color: '#71717A' }}>No availability requests</div>
-              <div className="text-xs mt-1" style={{ color: '#71717A' }}>Employees haven't submitted any yet</div>
+              <div className="text-xs mt-1" style={{ color: '#71717A' }}>
+                {showPendingOnly ? 'No pending requests' : "Employees haven't submitted any yet"}
+              </div>
             </div>
           ) : (
-            availRequests.map(req => {
+            visibleAvail.map(req => {
               const status = availStatuses[req.id] ?? req.status ?? 'pending';
               const diff = availabilityDiffByRequestId.get(req.id);
               const isFirstSubmission = diff?.isFirstSubmission ?? true;
+              const hasUndo = pendingUndoMap.has(req.id);
               return (
                 <div
                   key={req.id}
@@ -405,19 +464,18 @@ export default function Approvals() {
                       </div>
                       {status === 'pending' ? (
                         <ActionButtons
-                          onApprove={() => void setAvailStatus(req.id, 'approved')}
-                          onReject={() => void setAvailStatus(req.id, 'rejected')}
+                          onApprove={() => void handleAction(req.id, 'availability', 'approved')}
+                          onReject={() => void handleAction(req.id, 'availability', 'rejected')}
                         />
                       ) : (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <StatusBadge status={status} />
-                          {isApiConfigured ? null : (
+                          {hasUndo && (
                             <button
-                              onClick={() => setAvailStatuses(s => ({ ...s, [req.id]: 'pending' }))}
-                              className="text-xs transition-colors"
-                              style={{ color: '#71717A' }}
-                              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#A1A1AA'}
-                              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#71717A'}
+                              onClick={() => void handleUndo(req.id)}
+                              style={{ fontSize: 12, color: '#818CF8', fontWeight: 500, cursor: 'pointer', background: 'none', border: 'none', padding: 0, textDecoration: 'underline' }}
+                              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#6366F1'}
+                              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#818CF8'}
                             >
                               Undo
                             </button>
@@ -441,17 +499,20 @@ export default function Approvals() {
       {/* Time Off Tab */}
       {activeTab === 'timeoff' && (
         <div className="space-y-4">
-          {timeOffRequests.length === 0 ? (
+          {visibleTimeOff.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 rounded-xl"
               style={{ backgroundColor: '#27272A', border: '1px solid #3F3F46' }}>
               <ClipboardCheck size={36} style={{ color: '#3F3F46' }} />
               <div className="text-sm font-medium mt-3" style={{ color: '#71717A' }}>No time-off requests</div>
-              <div className="text-xs mt-1" style={{ color: '#71717A' }}>All clear for this period</div>
+              <div className="text-xs mt-1" style={{ color: '#71717A' }}>
+                {showPendingOnly ? 'No pending requests' : 'All clear for this period'}
+              </div>
             </div>
           ) : (
-            timeOffRequests.map(req => {
+            visibleTimeOff.map(req => {
               const status = timeOffStatuses[req.id] ?? req.status ?? 'pending';
               const sameDay = req.start_date === req.end_date;
+              const hasUndo = pendingUndoMap.has(req.id);
               return (
                 <div
                   key={req.id}
@@ -470,21 +531,22 @@ export default function Approvals() {
                       </div>
                       {status === 'pending' ? (
                         <ActionButtons
-                          onApprove={() => void setTimeOffStatus(req.id, 'approved')}
-                          onReject={() => void setTimeOffStatus(req.id, 'rejected')}
+                          onApprove={() => void handleAction(req.id, 'timeoff', 'approved')}
+                          onReject={() => void handleAction(req.id, 'timeoff', 'rejected')}
                         />
                       ) : (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <StatusBadge status={status} />
-                          <button
-                            onClick={() => setTimeOffStatuses(s => ({ ...s, [req.id]: 'pending' }))}
-                            className="text-xs transition-colors"
-                            style={{ color: '#71717A' }}
-                            onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#A1A1AA'}
-                            onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#71717A'}
-                          >
-                            Undo
-                          </button>
+                          {hasUndo && (
+                            <button
+                              onClick={() => void handleUndo(req.id)}
+                              style={{ fontSize: 12, color: '#818CF8', fontWeight: 500, cursor: 'pointer', background: 'none', border: 'none', padding: 0, textDecoration: 'underline' }}
+                              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#6366F1'}
+                              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#818CF8'}
+                            >
+                              Undo
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -498,6 +560,15 @@ export default function Approvals() {
               );
             })
           )}
+        </div>
+      )}
+
+      {errorToast && (
+        <div
+          className="fixed bottom-6 right-6 z-50 px-4 py-2 rounded-lg text-sm"
+          style={{ backgroundColor: 'rgba(248,113,113,0.2)', color: '#F87171', border: '1px solid rgba(248,113,113,0.3)' }}
+        >
+          {errorToast}
         </div>
       )}
     </div>

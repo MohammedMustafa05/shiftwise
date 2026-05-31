@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { format, startOfWeek } from 'date-fns';
 import { api, isApiConfigured } from '../lib/api';
 import { useWorkplaceId } from './useEmployerApi';
+import { approvalChangeSignal } from './approvalChangeSignal';
 
 export function usePendingApprovals() {
   const workplaceId = useWorkplaceId();
@@ -20,6 +21,10 @@ export function usePendingApprovals() {
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    return approvalChangeSignal.subscribe(() => void refresh());
   }, [refresh]);
 
   return { count, refresh };

@@ -37,6 +37,7 @@ export default function HomeScreen() {
   const [teamToday, setTeamToday] = useState<Array<{ id: string; name: string; initials: string; role: string }>>([]);
   const [announcementItems, setAnnouncementItems] = useState<AnnouncementItem[]>(fallbackAnnouncements);
   const [workplaceId, setWorkplaceId] = useState<string | undefined>();
+  const [localActionsTaken, setLocalActionsTaken] = useState<Record<string, string>>({});
 
   const loadHome = useCallback(async () => {
     try {
@@ -100,6 +101,8 @@ export default function HomeScreen() {
           type: a.type as AnnouncementType,
           route: a.route,
           read: a.read,
+          relatedShiftId: a.relatedShiftId,
+          actionTaken: a.actionTaken,
         })),
       );
     } catch {
@@ -125,6 +128,27 @@ export default function HomeScreen() {
     },
     [router],
   );
+
+  const handleClaimShift = async (item: AnnouncementItem) => {
+    if (!item.relatedShiftId || localActionsTaken[item.id]) return;
+    setLocalActionsTaken((prev) => ({ ...prev, [item.id]: "claiming" }));
+    try {
+      await api.claimOpenShift(item.relatedShiftId);
+      setLocalActionsTaken((prev) => ({ ...prev, [item.id]: "claimed" }));
+    } catch {
+      setLocalActionsTaken((prev) => { const n = { ...prev }; delete n[item.id]; return n; });
+    }
+  };
+
+  const handleRespondTransfer = async (item: AnnouncementItem, status: "accepted" | "declined") => {
+    if (!item.relatedShiftId || localActionsTaken[item.id]) return;
+    setLocalActionsTaken((prev) => ({ ...prev, [item.id]: status }));
+    try {
+      await api.respondTransfer(item.relatedShiftId, status);
+    } catch {
+      setLocalActionsTaken((prev) => { const n = { ...prev }; delete n[item.id]; return n; });
+    }
+  };
 
   const shiftSummary = upcoming
     ? `${upcoming.name} · ${upcoming.dayShort} ${upcoming.date} · ${upcoming.timeRange} · ${upcoming.location}`
@@ -195,26 +219,76 @@ export default function HomeScreen() {
         {announcementItems.length === 0 ? (
           <Text style={styles.emptyAnnouncements}>No announcements yet</Text>
         ) : (
-          announcementItems.map((item) => (
-            <Pressable
-              key={item.id}
-              style={[styles.announcementCard, item.read && styles.announcementRead]}
-              onPress={() => onAnnouncementPress(item)}
-            >
-              <View style={styles.announcementIcon}>
-                <Feather
-                  name={announcementIcon(item.type) as ComponentProps<typeof Feather>["name"]}
-                  size={18}
-                  color={Colors.primary}
-                />
-              </View>
-              <View style={styles.announcementBody}>
-                <Text style={styles.announcementTitle}>{item.title}</Text>
-                <Text style={styles.announcementDate}>{item.date}</Text>
-              </View>
-              <Feather name="chevron-right" size={18} color={Colors.textMuted} />
-            </Pressable>
-          ))
+          announcementItems.map((item) => {
+            const action = localActionsTaken[item.id] ?? item.actionTaken;
+            if (item.type === "shift_offer") {
+              return (
+                <View key={item.id} style={[styles.announcementCard, item.read && styles.announcementRead]}>
+                  <View style={styles.announcementIcon}>
+                    <Feather name="gift" size={18} color={Colors.primary} />
+                  </View>
+                  <View style={styles.announcementBody}>
+                    <Text style={styles.announcementTitle}>{item.title}</Text>
+                    <Text style={styles.announcementDate}>{item.date}</Text>
+                  </View>
+                  {action ? (
+                    <Text style={styles.actionDoneText}>Claim Requested</Text>
+                  ) : (
+                    <Pressable style={styles.actionBtn} onPress={() => void handleClaimShift(item)}>
+                      <Text style={styles.actionBtnText}>Claim Shift</Text>
+                    </Pressable>
+                  )}
+                </View>
+              );
+            }
+            if (item.type === "shift_exchange") {
+              return (
+                <View key={item.id} style={[styles.announcementCard, item.read && styles.announcementRead]}>
+                  <View style={styles.announcementIcon}>
+                    <Feather name="repeat" size={18} color={Colors.primary} />
+                  </View>
+                  <View style={styles.announcementBody}>
+                    <Text style={styles.announcementTitle}>{item.title}</Text>
+                    <Text style={styles.announcementDate}>{item.date}</Text>
+                  </View>
+                  {action ? (
+                    <Text style={styles.actionDoneText}>
+                      {action === "accepted" ? "Accepted" : "Declined"}
+                    </Text>
+                  ) : (
+                    <View style={styles.actionBtnRow}>
+                      <Pressable style={styles.actionBtn} onPress={() => void handleRespondTransfer(item, "accepted")}>
+                        <Text style={styles.actionBtnText}>Accept</Text>
+                      </Pressable>
+                      <Pressable style={styles.actionBtnDecline} onPress={() => void handleRespondTransfer(item, "declined")}>
+                        <Text style={styles.actionBtnDeclineText}>Decline</Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              );
+            }
+            return (
+              <Pressable
+                key={item.id}
+                style={[styles.announcementCard, item.read && styles.announcementRead]}
+                onPress={() => onAnnouncementPress(item)}
+              >
+                <View style={styles.announcementIcon}>
+                  <Feather
+                    name={announcementIcon(item.type) as ComponentProps<typeof Feather>["name"]}
+                    size={18}
+                    color={Colors.primary}
+                  />
+                </View>
+                <View style={styles.announcementBody}>
+                  <Text style={styles.announcementTitle}>{item.title}</Text>
+                  <Text style={styles.announcementDate}>{item.date}</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color={Colors.textMuted} />
+              </Pressable>
+            );
+          })
         )}
       </View>
     </ScrollView>
@@ -359,5 +433,36 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textMuted,
     marginTop: 2,
+  },
+  actionBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: Colors.primaryLight,
+  },
+  actionBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.primary,
+  },
+  actionBtnDecline: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: "rgba(248,113,113,0.12)",
+  },
+  actionBtnDeclineText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#F87171",
+  },
+  actionBtnRow: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  actionDoneText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Colors.textMuted,
   },
 });

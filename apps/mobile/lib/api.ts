@@ -223,6 +223,7 @@ export const api = {
         endTime: string;
         managerApproved: boolean;
         confirmed: boolean;
+        status?: string;
       }>
     >("/employees/me/availability"),
 
@@ -319,6 +320,8 @@ export const api = {
         type: string;
         route: string;
         read: boolean;
+        relatedShiftId?: string;
+        actionTaken?: string;
       }>
     >("/employees/me/announcements"),
 
