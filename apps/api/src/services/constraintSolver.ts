@@ -292,6 +292,30 @@ function exceedsRoleCapAtAnyHour(
   return false;
 }
 
+/**
+ * Demand-phase only: a shift may not push a role above its per-hour TARGET from
+ * the workers-needed table (e.g. 4 workers ⇒ 1C/2P/1Ca — a second cashier is
+ * rejected even though the hard ROLE_CAP for cashiers is 2).  Operating hours
+ * where the role is at/over target at ANY covered hour reject the shift; the
+ * demandWindow clipping keeps shifts inside the under-target span so legit
+ * shifts are not blocked by slow shoulder hours.
+ */
+function exceedsRoleTargetAtAnyHour(
+  shifts: ValidatedShift[],
+  candidate: { date: string; start_time: string; end_time: string; role: string },
+  demand: WorkersNeededMaps
+): boolean {
+  const role = canonicalRole(candidate.role);
+  if (!isStaffingRole(role)) return false;
+  for (const hour of hoursCoveredByShift(candidate.start_time, candidate.end_time)) {
+    if (!isOperatingHour(candidate.date, hour)) continue;
+    const counts = concurrentRoleCounts(shifts, candidate.date, hour);
+    const target = requiredRoleCountAtHour(demand, candidate.date, hour, role, "demand");
+    if (counts[role] >= target) return true;
+  }
+  return false;
+}
+
 /** Headcount caps apply; core trio can bypass when filling gaps. */
 function exceedsLabourCap(
   accepted: ValidatedShift[],
@@ -503,6 +527,19 @@ function tryExtendShiftForHour(
       continue;
     }
 
+    // Demand extensions: the newly added hours must not push the role above its
+    // per-hour target from the workers-needed table.
+    if (
+      !coreFillOnly &&
+      exceedsRoleTargetAtAnyHour(
+        accepted.filter((x) => x !== sh),
+        { date, start_time: sh.endTime, end_time: newEnd, role },
+        demand
+      )
+    ) {
+      continue;
+    }
+
     sh.endTime = newEnd;
     return true;
   }
@@ -556,6 +593,20 @@ function tryAssignCoverageShift(
         },
         demand,
         { coreFillOnly }
+      )
+    ) {
+      continue;
+    }
+
+    // Demand extras must respect the per-hour role split from the workers-needed
+    // table (e.g. 4 workers ⇒ 1C/2P/1Ca) at every hour they cover — not just the
+    // hard ROLE_CAPS maximums (1C/2Ca/4P).
+    if (
+      !coreFillOnly &&
+      exceedsRoleTargetAtAnyHour(
+        accepted,
+        { date, start_time: win.start, end_time: win.end, role },
+        demand
       )
     ) {
       continue;

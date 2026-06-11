@@ -29,6 +29,11 @@ from labour import (
 # MIN_SHIFT_HOURS).  Demand dips shorter than this keep the worker on shift.
 MIN_EXTRA_SHIFT_HOURS = 3
 
+# Weekly hours may run up to 10% over the strict formula budget — the store
+# accepts a 300–330h band for a ~300h week, so high-value dinner-peak extras
+# on busy days are kept instead of being cut at exactly 20.0%.
+BUDGET_TOLERANCE = 0.10
+
 
 def _extra_shift_segments(
     hours: list[int], extras_by_hour: dict[int, int]
@@ -110,8 +115,11 @@ def smooth_demand_to_shift_windows(
 
     weekly_sales = sum(float(r.get("sales") or 0) for r in by_hour)
     budget_hours = (weekly_sales * labour_pct) / avg_wage if avg_wage > 0 else 0.0
+    # Accept up to BUDGET_TOLERANCE over the strict formula (300h → 330h band)
+    # so busy-day dinner peaks keep their extras instead of dropping to floor.
+    budget_ceiling = budget_hours * (1.0 + BUDGET_TOLERANCE)
     floor_hours = float(len(by_hour) * MANDATORY_FLOOR)
-    extra_budget = max(0.0, budget_hours - floor_hours)
+    extra_budget = max(0.0, budget_ceiling - floor_hours)
 
     # Collect candidate extra segments across the whole week with their value.
     candidates: list[dict] = []
@@ -177,6 +185,7 @@ def smooth_demand_to_shift_windows(
         "labourPctTarget": labour_pct,
         "avgWage": avg_wage,
         "budgetHours": round(budget_hours, 1),
+        "budgetCeilingHours": round(budget_ceiling, 1),
         "floorHours": round(floor_hours, 1),
         "extraBudgetHours": round(extra_budget, 1),
         "extraHoursKept": round(used, 1),

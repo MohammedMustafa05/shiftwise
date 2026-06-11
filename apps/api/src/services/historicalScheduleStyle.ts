@@ -198,9 +198,12 @@ export function bestShiftWindowForHour(
   hour: number,
   date?: string
 ): { start: string; end: string } | null {
-  const opStart = 10 * 60;
-  // Use date-specific close hour so Friday/Saturday (close=24) get midnight templates.
-  const { close: closeHour } = date ? operatingHoursForDate(date) : { close: 22 };
+  // Use date-specific open/close so Sat/Sun (open=11) never start shifts at 10AM
+  // and Friday/Saturday (close=24) get midnight templates.
+  const { open: openHour, close: closeHour } = date
+    ? operatingHoursForDate(date)
+    : { open: 10, close: 22 };
+  const opStart = openHour * 60;
   const opEnd = closeHour * 60;
   const closingTime = `${String(closeHour % 24).padStart(2, "0")}:00`;
 
@@ -226,6 +229,11 @@ export function bestShiftWindowForHour(
 
   for (const key of hourPref) {
     const [start, end] = key.split("-");
+    // Skip templates starting before this day's opening hour (e.g. 10:00
+    // templates on Sat/Sun which open at 11:00) or ending after close.
+    if (toMinutes(start) < opStart) continue;
+    const endM = toMinutes(end) === 0 ? 24 * 60 : toMinutes(end);
+    if (endM > opEnd) continue;
     if (windowFitsAvailability(start, end, availStart, availEnd, hour)) {
       return { start, end };
     }
