@@ -364,21 +364,71 @@ function exceedsLabourCap(
   return false;
 }
 
+/**
+ * Find the contiguous span of hours starting at `startHour` where `role` is
+ * still under the required demand target.  The returned window is at least
+ * MIN_SHIFT_HOURS wide so the resulting shift is schedulable.
+ *
+ * Used exclusively by the demand phase to produce targeted short shifts
+ * (e.g. 18:00–21:00) rather than full half-day blocks (10:00–17:00).
+ */
+function contiguousDemandSpan(
+  date: string,
+  startHour: number,
+  role: StaffingRole,
+  accepted: ValidatedShift[],
+  demand: WorkersNeededMaps
+): { open: number; close: number } {
+  const { open: opOpen, close: opClose } = operatingHoursForDate(date);
+
+  // Expand end-hour while role is still under-required at consecutive hours.
+  let endHour = startHour + 1;
+  while (endHour < opClose) {
+    const required = requiredRoleCountAtHour(demand, date, endHour, role, "demand");
+    const current = concurrentRoleCounts(accepted, date, endHour)[role];
+    if (current >= required) break;
+    endHour++;
+  }
+
+  // Guarantee minimum shift length — extend end first, then pull start back.
+  endHour = Math.min(Math.max(endHour, startHour + MIN_SHIFT_HOURS), opClose);
+  const adjStart = Math.max(opOpen, endHour - Math.max(endHour - startHour, MIN_SHIFT_HOURS));
+
+  return { open: adjStart, close: endHour };
+}
+
 function bestOperatingShiftWindow(
   availStart: string,
   availEnd: string,
   mustIncludeHour?: number,
   date?: string,
-  options?: { floorPhase?: boolean }
+  options?: { floorPhase?: boolean; demandWindow?: { open: number; close: number } }
 ): { start: string; end: string } | null {
   const { open, close } = date ? operatingHoursForDate(date) : { open: OPERATING_HOUR_START, close: OPERATING_HOUR_END };
   const opStart = open * 60;
   const opEnd = close * 60;
-  const aS = Math.max(toMinutes(availStart), opStart);
-  const aE = Math.min(effectiveEndMinutes(availEnd, availStart), opEnd);
-  const isClosingShift = aE >= opEnd;
+  const isClosingShift = Math.min(effectiveEndMinutes(availEnd, availStart), opEnd) >= opEnd;
   const effectiveMin =
     options?.floorPhase && isClosingShift ? FLOOR_MIN_SHIFT_HOURS : MIN_SHIFT_HOURS;
+
+  // Demand phase with a targeted window: clip availability to the demand span and
+  // return a short shift covering only those hours.  Skip historical block templates
+  // entirely — extras should not get full open/close blocks.
+  if (options?.demandWindow && !options?.floorPhase) {
+    const dwS = options.demandWindow.open * 60;
+    const dwE = options.demandWindow.close * 60;
+    const aS = Math.max(toMinutes(availStart), opStart, dwS);
+    const aE = Math.min(effectiveEndMinutes(availEnd, availStart), opEnd, dwE);
+    if (aE - aS < effectiveMin * 60) return null;
+    if (mustIncludeHour !== undefined) {
+      const hStart = mustIncludeHour * 60;
+      if (hStart < aS || hStart + 60 > aE) return null;
+    }
+    return { start: fromMinutes(aS), end: fromMinutes(aE) };
+  }
+
+  const aS = Math.max(toMinutes(availStart), opStart);
+  const aE = Math.min(effectiveEndMinutes(availEnd, availStart), opEnd);
 
   if (mustIncludeHour !== undefined) {
     const styled = bestShiftWindowForHour(availStart, availEnd, mustIncludeHour, date);
@@ -473,13 +523,15 @@ function tryAssignCoverageShift(
   maxHoursFor: (emp: SolverEmployee) => number,
   isWithinAvailability: (userId: string, date: string, start: string, end: string) => boolean,
   hasTimeOff: (userId: string, date: string) => boolean,
-  coreFillOnly: boolean
+  coreFillOnly: boolean,
+  demandWindow?: { open: number; close: number }
 ): boolean {
   if (hasTimeOff(emp.user_id, date)) return false;
 
   for (const block of blocks) {
     const win = bestOperatingShiftWindow(block.start_time, block.end_time, hour, date, {
       floorPhase: coreFillOnly,
+      demandWindow: coreFillOnly ? undefined : demandWindow,
     });
     if (!win) continue;
     if (!isWithinAvailability(emp.user_id, date, win.start, win.end)) continue;
@@ -542,7 +594,8 @@ function diagnoseCoverageRejections(
   maxHoursFor: (emp: SolverEmployee) => number,
   isWithinAvailability: (userId: string, date: string, start: string, end: string) => boolean,
   hasTimeOff: (userId: string, date: string) => boolean,
-  coreFillOnly: boolean
+  coreFillOnly: boolean,
+  demandWindow?: { open: number; close: number }
 ): string[] {
   const reasons: string[] = [];
   if (blocks.length === 0) {
@@ -558,6 +611,7 @@ function diagnoseCoverageRejections(
   for (const block of blocks) {
     const win = bestOperatingShiftWindow(block.start_time, block.end_time, hour, date, {
       floorPhase: coreFillOnly,
+      demandWindow: coreFillOnly ? undefined : demandWindow,
     });
     if (!win) {
       reasons.push(
@@ -730,6 +784,12 @@ function fillRoleGaps(params: {
 
           let assigned = false;
 
+          // For demand phase: compute a targeted short shift window covering the
+          // contiguous demand peak around this hour.  Floor phase uses full blocks.
+          const demandWindow = !coreFillOnly
+            ? contiguousDemandSpan(date, hour, role, accepted, demand)
+            : undefined;
+
           // Prefer assigning a fresh employee over extending an existing shift.
           // Extension is a fallback used only when no eligible candidate is available,
           // which prevents single employees from accumulating 12-hour shifts.
@@ -750,7 +810,8 @@ function fillRoleGaps(params: {
                 maxHoursFor,
                 isWithinAvailability,
                 hasTimeOff,
-                coreFillOnly
+                coreFillOnly,
+                demandWindow
               )
             ) {
               filled++;
@@ -775,7 +836,8 @@ function fillRoleGaps(params: {
                   maxHoursFor,
                   isWithinAvailability,
                   hasTimeOff,
-                  coreFillOnly
+                  coreFillOnly,
+                  demandWindow
                 )
               );
             }
