@@ -23,6 +23,8 @@ import { getInitials, getAvatarColor } from '../lib/utils';
 import { api, isApiConfigured, loadScheduleWithEmployees } from '../lib/api';
 import { ApiError, getToken, apiFetch } from '../lib/api/client';
 import { useEmployees } from '../hooks/useEmployerApi';
+import { OverrideReasonPicker } from '../components/schedule/OverrideReasonPicker';
+import type { OverrideReason } from '@shiftagent/shared';
 import {
   buildAiSuggestions,
   displayNameShort,
@@ -74,7 +76,8 @@ function ShiftPill({
   return (
     <button
       type="button"
-      className="inline-flex flex-col items-center justify-center rounded-2xl font-bold transition-transform hover:scale-[1.02]"
+      title={shift.is_engine_suggested && shift.llm_reasoning ? shift.llm_reasoning : undefined}
+      className="inline-flex flex-col items-center justify-center rounded-2xl font-bold transition-transform hover:scale-[1.02] relative"
       style={{
         padding: '8px 14px',
         backgroundColor: style.bg,
@@ -83,9 +86,18 @@ function ShiftPill({
         fontSize: 13,
         lineHeight: 1.25,
         gap: 4,
+        outline: shift.is_engine_suggested ? '1px solid rgba(129,140,248,0.5)' : undefined,
       }}
       onClick={onClick}
     >
+      {shift.is_engine_suggested && (
+        <span
+          className="absolute -top-1 -right-1 text-[8px] font-bold px-1 rounded"
+          style={{ backgroundColor: UI.accent, color: '#FFF' }}
+        >
+          AI
+        </span>
+      )}
       <span>{formatShiftPillLabel(shift.start_time, shift.end_time)}</span>
       <span
         className="text-[10px] font-semibold leading-none"
@@ -185,24 +197,75 @@ function SchedWheelPicker({ value, onChange }: { value: string; onChange: (v: st
 
 // ─── Edit Shift Popover ───────────────────────────────────────────────────────
 
-type EditPopoverState = { shift: Shift; x: number; y: number };
+type PopoverAnchor = { x: number; y: number };
 
-function EditShiftPopover({
-  popover,
+type EditPopoverState = PopoverAnchor & { shift: Shift };
+
+type AddShiftPopoverState = PopoverAnchor & { employeeId: string; date: string };
+
+type ShiftFormPayload = {
+  employeeId: string;
+  start: string;
+  end: string;
+  role: Role;
+};
+
+const ROLE_OPTIONS: Role[] = ['Cook', 'Cashier', 'Packer'];
+
+function shiftOutsideAvailability(
+  availGrid: Record<string, string[]> | null,
+  date: string,
+  start: string,
+  end: string
+): boolean {
+  if (!availGrid) return false;
+  const day = parseISOSafe(date);
+  if (!day) return false;
+  const KEY: Record<number, string> = {
+    0: 'sunday', 1: 'monday', 2: 'tuesday', 3: 'wednesday', 4: 'thursday', 5: 'friday', 6: 'saturday',
+  };
+  const hours = availGrid[KEY[day.getDay()]] ?? [];
+  if (!hours.length) return false;
+  const startH = parseInt(start.split(':')[0], 10);
+  const endH = parseInt(end.split(':')[0], 10);
+  for (let h = startH; h < endH; h++) {
+    if (!hours.includes(`${h.toString().padStart(2, '0')}:00`)) return true;
+  }
+  return false;
+}
+
+function ShiftEditorPopover({
+  anchor,
+  title,
+  subtitle,
+  employees,
+  initial,
+  availGrid,
+  date,
   onClose,
   onSave,
-  availGrid,
+  onDelete,
+  saveLabel = 'Save',
 }: {
-  popover: EditPopoverState;
-  onClose: () => void;
-  onSave: (shiftId: string, start: string, end: string) => Promise<void>;
+  anchor: PopoverAnchor;
+  title: string;
+  subtitle: string;
+  employees: Employee[];
+  initial: ShiftFormPayload;
   availGrid: Record<string, string[]> | null;
+  date: string;
+  onClose: () => void;
+  onSave: (payload: ShiftFormPayload) => Promise<void>;
+  onDelete?: () => Promise<void>;
+  saveLabel?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [start, setStart] = useState(popover.shift.start_time.slice(0, 5));
-  const [end, setEnd] = useState(popover.shift.end_time.slice(0, 5));
+  const [employeeId, setEmployeeId] = useState(initial.employeeId);
+  const [role, setRole] = useState<Role>(initial.role);
+  const [start, setStart] = useState(initial.start);
+  const [end, setEnd] = useState(initial.end);
   const [saving, setSaving] = useState(false);
-  const day = parseISOSafe(popover.shift.date);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     function handleDown(e: MouseEvent) {
@@ -212,42 +275,77 @@ function EditShiftPopover({
     return () => document.removeEventListener('mousedown', handleDown);
   }, [onClose]);
 
-  const availConflict = useMemo(() => {
-    if (!availGrid || !day) return false;
-    const KEY: Record<number, string> = { 0: 'sunday', 1: 'monday', 2: 'tuesday', 3: 'wednesday', 4: 'thursday', 5: 'friday', 6: 'saturday' };
-    const hours = availGrid[KEY[day.getDay()]] ?? [];
-    if (!hours.length) return false;
-    const startH = parseInt(start.split(':')[0], 10);
-    const endH = parseInt(end.split(':')[0], 10);
-    for (let h = startH; h < endH; h++) {
-      if (!hours.includes(`${h.toString().padStart(2, '0')}:00`)) return true;
-    }
-    return false;
-  }, [availGrid, day, start, end]);
+  const availConflict = useMemo(
+    () => shiftOutsideAvailability(availGrid, date, start, end),
+    [availGrid, date, start, end]
+  );
 
-  const popoverW = 300;
-  const popoverH = 360;
-  const left = Math.min(Math.max(8, popover.x - popoverW / 2), window.innerWidth - popoverW - 8);
-  const top = Math.min(popover.y + 12, window.innerHeight - popoverH - 8);
+  const popoverW = 320;
+  const popoverH = onDelete ? 520 : 480;
+  const left = Math.min(Math.max(8, anchor.x - popoverW / 2), window.innerWidth - popoverW - 8);
+  const top = Math.min(anchor.y + 12, window.innerHeight - popoverH - 8);
 
   async function handleSave() {
     setSaving(true);
     try {
-      await onSave(popover.shift.id, start, end);
+      await onSave({ employeeId, start, end, role });
+      onClose();
     } finally {
       setSaving(false);
     }
-    onClose();
+  }
+
+  async function handleDelete() {
+    if (!onDelete) return;
+    setDeleting(true);
+    try {
+      await onDelete();
+      onClose();
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
-    <div ref={ref} className="fixed z-50 rounded-xl shadow-xl" style={{ left, top, width: popoverW, backgroundColor: UI.card, border: `1px solid ${UI.border}` }}>
-      <div className="p-4">
-        <div className="text-sm font-semibold mb-0.5" style={{ color: UI.text }}>{popover.shift.employee?.name ?? 'Unassigned'}</div>
-        <div className="text-xs mb-3" style={{ color: UI.muted }}>{day ? format(day, 'EEEE, MMM d') : popover.shift.date}</div>
+    <div
+      ref={ref}
+      className="fixed z-50 rounded-xl shadow-xl"
+      style={{ left, top, width: popoverW, backgroundColor: UI.card, border: `1px solid ${UI.border}` }}
+    >
+      <div className="p-4 max-h-[85vh] overflow-y-auto">
+        <div className="text-sm font-semibold mb-0.5" style={{ color: UI.text }}>{title}</div>
+        <div className="text-xs mb-3" style={{ color: UI.muted }}>{subtitle}</div>
+
+        <label className="block text-xs font-medium mb-1" style={{ color: UI.muted }}>Employee</label>
+        <select
+          value={employeeId}
+          onChange={(e) => setEmployeeId(e.target.value)}
+          className="w-full mb-3 px-2 py-2 rounded-lg text-sm outline-none"
+          style={{ backgroundColor: UI.cardAlt, color: UI.text, border: `1px solid ${UI.border}` }}
+        >
+          {employees.map((emp) => (
+            <option key={emp.id} value={emp.id}>{emp.name}</option>
+          ))}
+        </select>
+
+        <label className="block text-xs font-medium mb-1" style={{ color: UI.muted }}>Role</label>
+        <select
+          value={role}
+          onChange={(e) => setRole(e.target.value as Role)}
+          className="w-full mb-3 px-2 py-2 rounded-lg text-sm outline-none"
+          style={{ backgroundColor: UI.cardAlt, color: UI.text, border: `1px solid ${UI.border}` }}
+        >
+          {ROLE_OPTIONS.map((r) => (
+            <option key={r} value={r}>{r}</option>
+          ))}
+        </select>
+
         {availConflict && (
-          <div className="text-xs mb-3" style={{ color: '#F87171' }}>Outside this employee's available hours</div>
+          <div className="text-xs mb-3" style={{ color: '#F87171' }}>
+            Outside this employee&apos;s available hours (shifts must fit inside their submitted block)
+          </div>
         )}
+
         <div className="flex gap-3 mb-4">
           <div style={{ flex: 1 }}>
             <div className="text-xs mb-1.5 font-medium" style={{ color: UI.muted }}>Start</div>
@@ -258,9 +356,27 @@ function EditShiftPopover({
             <SchedWheelPicker value={end} onChange={setEnd} />
           </div>
         </div>
-        <button type="button" onClick={() => void handleSave()} disabled={saving} className="w-full py-2 rounded-lg text-sm font-semibold mb-2 disabled:opacity-60" style={{ backgroundColor: UI.accent, color: '#FFFFFF' }}>
-          {saving ? 'Saving…' : 'Save'}
+
+        <button
+          type="button"
+          onClick={() => void handleSave()}
+          disabled={saving || deleting}
+          className="w-full py-2 rounded-lg text-sm font-semibold mb-2 disabled:opacity-60"
+          style={{ backgroundColor: UI.accent, color: '#FFFFFF' }}
+        >
+          {saving ? 'Saving…' : saveLabel}
         </button>
+        {onDelete ? (
+          <button
+            type="button"
+            onClick={() => void handleDelete()}
+            disabled={saving || deleting}
+            className="w-full py-2 rounded-lg text-sm font-semibold mb-2 disabled:opacity-60"
+            style={{ backgroundColor: 'transparent', color: '#F87171', border: '1px solid rgba(248,113,113,0.35)' }}
+          >
+            {deleting ? 'Removing…' : 'Remove shift'}
+          </button>
+        ) : null}
         <button type="button" onClick={onClose} className="w-full py-1.5 text-xs font-medium" style={{ color: UI.muted }}>
           Cancel
         </button>
@@ -520,6 +636,16 @@ export default function Schedule() {
   const [suggestionStates, setSuggestionStates] = useState<Record<string, AISuggestionStatus>>({});
   const [roleFilter, setRoleFilter] = useState<Role | 'all'>('all');
   const [popover, setPopover] = useState<EditPopoverState | null>(null);
+  const [addShift, setAddShift] = useState<AddShiftPopoverState | null>(null);
+  const [pendingOverride, setPendingOverride] = useState<{
+    shiftId: string;
+    start: string;
+    end: string;
+    role: Role;
+    employeeId: string;
+    employeeName: string;
+  } | null>(null);
+  const [publishing, setPublishing] = useState(false);
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
@@ -696,13 +822,18 @@ export default function Schedule() {
   async function handleGenerate() {
     setGenerating(true);
     setGenerateError(null);
+    setScheduleToast({ type: 'success', msg: 'Generating schedule… this can take 2–3 minutes. Do not leave this page.' });
     try {
       if (isApiConfigured) {
         const result = await api.generateSchedule(weekStr);
-        if (result.scheduleId) {
-          await api.publishSchedule(result.scheduleId);
-        }
         await loadWeek();
+        const shiftCount = result.shifts?.length ?? shifts.length;
+        setScheduleToast({
+          type: 'success',
+          msg: shiftCount
+            ? `Draft schedule ready (${shiftCount} shifts) — edit shifts, then publish when ready`
+            : 'Draft schedule generated — edit shifts, then publish when ready',
+        });
       } else {
         setSchedule((s) => ({ ...s, status: 'draft', generated_at: new Date().toISOString() }));
       }
@@ -713,8 +844,38 @@ export default function Schedule() {
     }
   }
 
-  async function handleExport() {
-    if (isApiConfigured && schedule.id) {
+  async function handleExportPdf() {
+    if (!isApiConfigured || !schedule.id) return;
+    const token = getToken();
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/schedules/${schedule.id}/export/pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        let msg = 'PDF export failed';
+        try {
+          const body = await res.json();
+          msg = body.error ?? msg;
+        } catch {
+          /* non-JSON error body */
+        }
+        setScheduleToast({ type: 'error', msg });
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `schedule-${weekStr}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setScheduleToast({ type: 'error', msg: 'PDF export failed — is the API running?' });
+    }
+  }
+
+  async function handleExportCsv() {
+    if (isApiConfigured && schedule.id && schedule.status === 'published') {
       const token = getToken();
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/schedules/${schedule.id}/export/clearview`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -732,7 +893,8 @@ export default function Schedule() {
     }
     const rows = [['Date', 'Employee', 'Role', 'Start', 'End']];
     for (const s of shifts) {
-      rows.push([s.date, s.employee?.name ?? '', s.role, s.start_time, s.end_time]);
+      const firstName = (s.employee?.name ?? '').trim().split(/\s+/)[0] ?? '';
+      rows.push([s.date, firstName, s.role, s.start_time.slice(0, 5), s.end_time.slice(0, 5)]);
     }
     const blob = new Blob([rows.map((r) => r.join(',')).join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -743,18 +905,126 @@ export default function Schedule() {
     URL.revokeObjectURL(url);
   }
 
-  async function handleEditSave(shiftId: string, newStart: string, newEnd: string) {
-    const updates = { start_time: `${newStart}:00`, end_time: `${newEnd}:00` };
+  const isDraft = schedule.status === 'draft';
+
+  async function persistShiftUpdate(shiftId: string, payload: ShiftFormPayload, useOverride: boolean) {
+    if (!schedule.id || !isApiConfigured) return;
+    if (useOverride) {
+      const emp = employees.find((e) => e.id === payload.employeeId);
+      setPendingOverride({
+        shiftId,
+        start: payload.start,
+        end: payload.end,
+        role: payload.role,
+        employeeId: payload.employeeId,
+        employeeName: emp?.name ?? 'Employee',
+      });
+      return;
+    }
+    const updates = {
+      start_time: `${payload.start}:00`,
+      end_time: `${payload.end}:00`,
+      role: payload.role,
+      employee_id: payload.employeeId,
+    };
     const prevShifts = shifts;
-    setShifts((prev) => prev.map((s) => s.id === shiftId ? { ...s, ...updates } : s));
-    if (isApiConfigured && schedule.id) {
-      try {
-        await api.updateShift(schedule.id, shiftId, updates, employees);
-        setScheduleToast({ type: 'success', msg: 'Saved' });
-      } catch {
-        setShifts(prevShifts);
-        setScheduleToast({ type: 'error', msg: 'Failed to save changes — please try again' });
-      }
+    setShifts((prev) =>
+      prev.map((s) =>
+        s.id === shiftId
+          ? {
+              ...s,
+              ...updates,
+              employee: employees.find((e) => e.id === payload.employeeId) ?? s.employee,
+            }
+          : s
+      )
+    );
+    try {
+      await api.updateShift(schedule.id, shiftId, updates, employees);
+      await loadWeek();
+      setScheduleToast({ type: 'success', msg: 'Shift saved' });
+    } catch {
+      setShifts(prevShifts);
+      setScheduleToast({ type: 'error', msg: 'Failed to save — please try again' });
+    }
+  }
+
+  async function handleEditSave(shiftId: string, payload: ShiftFormPayload) {
+    const shift = shifts.find((s) => s.id === shiftId);
+    if (!shift) return;
+    setPopover(null);
+    await persistShiftUpdate(shiftId, payload, Boolean(shift.is_engine_suggested && isApiConfigured));
+  }
+
+  async function handleOverrideConfirm(reason: OverrideReason, notes: string) {
+    if (!pendingOverride || !schedule.id) return;
+    const { shiftId, start, end, role, employeeId } = pendingOverride;
+    try {
+      await api.overrideShift(schedule.id, shiftId, {
+        overrideReason: reason,
+        notes: notes || undefined,
+        startTime: start,
+        endTime: end,
+        role: role.toUpperCase(),
+        employeeId: (employees.find((e) => e.id === employeeId) as Employee & { userId?: string })?.userId ?? employeeId,
+      });
+      await loadWeek();
+      setScheduleToast({ type: 'success', msg: 'Saved with override reason' });
+    } catch {
+      setScheduleToast({ type: 'error', msg: 'Failed to save — please try again' });
+    } finally {
+      setPendingOverride(null);
+    }
+  }
+
+  async function handleDeleteShift(shiftId: string) {
+    if (!schedule.id || !isApiConfigured) return;
+    try {
+      await api.deleteShift(schedule.id, shiftId);
+      await loadWeek();
+      setScheduleToast({ type: 'success', msg: 'Shift removed' });
+    } catch {
+      setScheduleToast({ type: 'error', msg: 'Failed to remove shift' });
+    }
+  }
+
+  async function handleAddShiftSave(payload: ShiftFormPayload, date: string) {
+    if (!schedule.id || !isApiConfigured) return;
+    const emp = employees.find((e) => e.id === payload.employeeId);
+    const userId = (emp as Employee & { userId?: string })?.userId ?? payload.employeeId;
+    try {
+      await api.createShift(
+        schedule.id,
+        {
+          employeeId: userId,
+          shiftDate: date,
+          startTime: payload.start,
+          endTime: payload.end,
+          role: payload.role,
+        },
+        employees
+      );
+      await loadWeek();
+      setScheduleToast({ type: 'success', msg: 'Shift added' });
+    } catch {
+      setScheduleToast({ type: 'error', msg: 'Failed to add shift' });
+    }
+  }
+
+  async function handlePublish() {
+    if (!schedule.id) return;
+    setPublishing(true);
+    try {
+      await api.publishSchedule(schedule.id);
+      await loadWeek();
+      setScheduleToast({ type: 'success', msg: 'Schedule published' });
+    } catch (e) {
+      setScheduleToast({
+        type: 'error',
+        msg: e instanceof ApiError ? e.message : 'Failed to publish',
+      });
+    } finally {
+      setPublishing(false);
     }
   }
 
@@ -870,14 +1140,35 @@ export default function Schedule() {
           </select>
           <button
             type="button"
-            onClick={() => void handleExport()}
+            onClick={() => void handleExportPdf()}
             disabled={!showGrid}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-40"
             style={{ backgroundColor: 'transparent', color: UI.text, border: `1px solid ${UI.border}` }}
           >
             <Download size={15} />
-            Export
+            Download PDF
           </button>
+          <button
+            type="button"
+            onClick={() => void handleExportCsv()}
+            disabled={!showGrid}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-40"
+            style={{ backgroundColor: 'transparent', color: UI.text, border: `1px solid ${UI.border}` }}
+          >
+            Export CSV
+          </button>
+          {isDraft && schedule.id ? (
+            <button
+              type="button"
+              onClick={() => void handlePublish()}
+              disabled={publishing || roleWarnings.length > 0}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-40"
+              style={{ backgroundColor: 'transparent', color: UI.text, border: `1px solid ${UI.border}` }}
+              title={roleWarnings.length > 0 ? 'Resolve role conflicts before publishing' : undefined}
+            >
+              {publishing ? 'Publishing…' : 'Publish schedule'}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => void handleGenerate()}
@@ -998,6 +1289,7 @@ export default function Schedule() {
                   return (
                     <tr
                       key={emp.id}
+                      className="group"
                       onMouseEnter={() => setHoveredRow(emp.id)}
                       onMouseLeave={() => setHoveredRow(null)}
                       style={{
@@ -1035,14 +1327,20 @@ export default function Schedule() {
                             key={dayIndex}
                             className="text-center align-middle px-1.5 py-2"
                             style={{ backgroundColor: bg, minWidth: DAY_COL_MIN }}
+                            onClick={(e) => {
+                              if (!isDraft) return;
+                              if ((e.target as HTMLElement).closest('button')) return;
+                              setAddShift({ employeeId: emp.id, date: dateStr, x: e.clientX, y: e.clientY });
+                            }}
                           >
-                            <div className="flex flex-col items-center gap-1.5">
+                            <div className="flex flex-col items-center gap-1.5 min-h-[40px] justify-center">
                               {dayShifts.map((shift) => (
                                 <ShiftPill
                                   key={shift.id}
                                   shift={shift}
                                   onClick={(e) => {
                                     e.stopPropagation();
+                                    if (!isDraft) return;
                                     if (shift.is_locked) {
                                       setLockedTooltip({ x: e.clientX, y: e.clientY });
                                     } else {
@@ -1051,6 +1349,11 @@ export default function Schedule() {
                                   }}
                                 />
                               ))}
+                              {isDraft && dayShifts.length === 0 ? (
+                                <span className="text-xs opacity-0 group-hover:opacity-100" style={{ color: UI.muted2 }}>
+                                  + Add
+                                </span>
+                              ) : null}
                             </div>
                           </td>
                         );
@@ -1109,12 +1412,63 @@ export default function Schedule() {
         />
       )}
 
-      {popover && (
-        <EditShiftPopover
-          popover={popover}
-          onClose={() => setPopover(null)}
-          onSave={handleEditSave}
+      {popover && isDraft ? (
+        <ShiftEditorPopover
+          anchor={popover}
+          title="Edit shift"
+          subtitle={
+            parseISOSafe(popover.shift.date)
+              ? format(parseISOSafe(popover.shift.date)!, 'EEEE, MMM d')
+              : popover.shift.date
+          }
+          employees={employees}
+          initial={{
+            employeeId: popover.shift.employee_id,
+            role: popover.shift.role,
+            start: popover.shift.start_time.slice(0, 5),
+            end: popover.shift.end_time.slice(0, 5),
+          }}
           availGrid={employeeAvailMap.get(popover.shift.employee_id) ?? null}
+          date={popover.shift.date}
+          onClose={() => setPopover(null)}
+          onSave={(payload) => handleEditSave(popover.shift.id, payload)}
+          onDelete={() => handleDeleteShift(popover.shift.id)}
+        />
+      ) : null}
+
+      {addShift && isDraft ? (
+        <ShiftEditorPopover
+          anchor={addShift}
+          title="Add shift"
+          subtitle={
+            parseISOSafe(addShift.date)
+              ? format(parseISOSafe(addShift.date)!, 'EEEE, MMM d')
+              : addShift.date
+          }
+          employees={employees}
+          initial={{
+            employeeId: addShift.employeeId,
+            role: employees.find((e) => e.id === addShift.employeeId)?.role[0] ?? 'Cook',
+            start: '10:00',
+            end: '16:00',
+          }}
+          availGrid={employeeAvailMap.get(addShift.employeeId) ?? null}
+          date={addShift.date}
+          onClose={() => setAddShift(null)}
+          onSave={async (payload) => {
+            const date = addShift.date;
+            setAddShift(null);
+            await handleAddShiftSave(payload, date);
+          }}
+          saveLabel="Add shift"
+        />
+      ) : null}
+
+      {pendingOverride && (
+        <OverrideReasonPicker
+          employeeName={pendingOverride.employeeName}
+          onConfirm={(reason, notes) => void handleOverrideConfirm(reason, notes)}
+          onCancel={() => setPendingOverride(null)}
         />
       )}
 

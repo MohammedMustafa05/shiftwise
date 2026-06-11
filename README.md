@@ -43,10 +43,14 @@ cp .env.example .env
 ### 3. Database (API)
 
 ```bash
-docker compose up -d
+docker compose up -d   # postgres + redis + api + ml-engine
 npm run db:migrate
-npm run db:seed
+npm run db:seed        # dev only — never seed production
 ```
+
+Full stack runs API on `:3001`, ML engine on `:8000`, Postgres on `:5432`, Redis on `:6379`.
+
+Production deployment: see [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ### 4. Run services
 

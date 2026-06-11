@@ -16,6 +16,41 @@ import type { Employee, Preferences, SalesData } from '../types';
 export { isApiConfigured, getStoredUser, clearAuth, setAuth } from './client';
 export { weekStartMonday } from './mappers';
 
+type GenerateResult = {
+  scheduleId: string;
+  status?: string;
+  shifts?: unknown[];
+  workersNeeded?: {
+    byHour: Array<{ date: string; hour: number; sales: number; workers: number }>;
+    byDay: Array<{ date: string; sales: number; workers: number }>;
+  };
+  flags?: Array<{ type: string; date?: string; hour?: number; message?: string }>;
+};
+
+type GenerateJobStatus = {
+  jobId: string;
+  state: string;
+  result: GenerateResult | null;
+  failedReason: string | null;
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pollGenerateJob(jobId: string, maxWaitMs = 600_000): Promise<GenerateResult> {
+  const started = Date.now();
+  while (Date.now() - started < maxWaitMs) {
+    await sleep(2000);
+    const job = await apiFetch<GenerateJobStatus>(`/api/schedules/generate/jobs/${jobId}`);
+    if (job.state === 'completed' && job.result) return job.result;
+    if (job.state === 'failed') {
+      throw new ApiError(job.failedReason ?? 'Schedule generation failed', 500);
+    }
+  }
+  throw new ApiError('Schedule generation timed out — try again in a minute', 504);
+}
+
 export const api = {
   async login(email: string, password: string): Promise<AuthResponse> {
     return apiFetch<AuthResponse>('/api/auth/login', {
@@ -31,10 +66,18 @@ export const api = {
     return rows.map((r) => mapEmployeeFromApi(r));
   },
 
-  async createEmployee(workplaceId: string, emp: Employee): Promise<Employee> {
+  async createEmployee(workplaceId: string, emp: Employee, password?: string): Promise<Employee> {
     const created = await apiFetch<Parameters<typeof mapEmployeeFromApi>[0]>(
       `/api/workplace/${workplaceId}/employees`,
-      { method: 'POST', body: JSON.stringify({ ...mapEmployeeToApi(emp), name: emp.name, email: emp.email }) }
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          ...mapEmployeeToApi(emp),
+          name: emp.name,
+          email: emp.email,
+          ...(password ? { password } : {}),
+        }),
+      }
     );
     return mapEmployeeFromApi(created);
   },
@@ -80,15 +123,35 @@ export const api = {
     }
   },
 
-  async generateSchedule(weekStart: string) {
-    return apiFetch<{
-      scheduleId: string;
-      status: string;
-      workersNeeded?: { byHour: Array<{ date: string; hour: number; sales: number; workers: number }>; byDay: Array<{ date: string; sales: number; workers: number }> };
-      flags?: Array<{ type: string; date?: string; hour?: number; message?: string }>;
-    }>('/api/schedules/generate', {
+  async generateSchedule(weekStart: string): Promise<GenerateResult> {
+    const res = await apiFetch<GenerateResult & { jobId?: string; status?: string }>(
+      '/api/schedules/generate',
+      {
+        method: 'POST',
+        body: JSON.stringify({ weekStart }),
+      }
+    );
+    if (res.jobId && res.status === 'queued') {
+      return pollGenerateJob(res.jobId);
+    }
+    return res;
+  },
+
+  async overrideShift(
+    scheduleId: string,
+    shiftId: string,
+    data: {
+      overrideReason: string;
+      notes?: string;
+      startTime?: string;
+      endTime?: string;
+      role?: string;
+      employeeId?: string;
+    }
+  ) {
+    return apiFetch(`/api/schedules/${scheduleId}/shifts/${shiftId}/override`, {
       method: 'POST',
-      body: JSON.stringify({ weekStart }),
+      body: JSON.stringify(data),
     });
   },
 
@@ -174,11 +237,12 @@ export const api = {
 
   async uploadSalesCsv(
     workplaceId: string,
-    file: File
+    file: File,
+    saleDate?: string
   ): Promise<{
     rowsAccepted: number;
     rowsRejected: number;
-    format?: 'standard' | 'drop_chart';
+    format?: 'standard' | 'drop_chart' | 'clearview_cash_sheet';
     dateRange: { from: string | null; to: string | null };
   }> {
     const token = getToken();
@@ -186,7 +250,8 @@ export const api = {
     form.append('file', file);
     const headers: Record<string, string> = {};
     if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await fetch(`${API_URL}/api/workplace/${workplaceId}/sales-data`, {
+    const qs = saleDate ? `?saleDate=${encodeURIComponent(saleDate)}` : '';
+    const res = await fetch(`${API_URL}/api/workplace/${workplaceId}/sales-data${qs}`, {
       method: 'POST',
       headers,
       body: form,

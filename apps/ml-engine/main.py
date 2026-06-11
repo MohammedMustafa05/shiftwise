@@ -1,293 +1,208 @@
-"""ShiftAgent ML Engine — demand forecasting and shift assignment.
-
-Pipeline:
-  1. Demand: map previous-week hourly sales onto the target week by day-of-week,
-     then compute workers needed per hour:
-         workers = max(MIN_WORKERS, min(MAX_WORKERS, round((sales * labour_pct) / demand_divisor)))
-     Hours with no sales are treated as closed.
-  2. Role split: fixed lookup (Cook always 1; Pack prioritised over Cash above the floor).
-  3. Shift construction: per day/role, decompose the hourly demand curve into shifts
-     with a LIFO stack — base workers open long shifts, peak workers are layered on
-     top for the rush and released when demand falls (honouring a minimum shift length).
-  4. Assignment: match shifts to employees by role + availability, balancing weekly
-     hours for fairness, respecting max weekly hours and one shift per day.
-"""
-
-from __future__ import annotations
-
+import glob
+import os
+import re
 import uuid
-from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date as _date, timedelta
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
+
+from drop_chart_parser import extract_drop_chart_metadata
+from historical_prior import apply_prior_to_workers, build_style_hints, load_prior
+from labour import HOURLY_DISTRIBUTIONS, MANDATORY_FLOOR, OPERATING_HOURS
+from sales_parser import parse_clearview_cash_sheet
+from scheduling_engine import build_workers_needed, smooth_demand_to_shift_windows
+
+ML_ENGINE_API_KEY = os.environ.get("ML_ENGINE_API_KEY", "")
 
 app = FastAPI(
     title="ShiftAgent ML Engine",
     description="Demand forecasting and schedule assignment service",
-    version="1.0.0",
+    version="0.1.0",
 )
-
-# ---------------------------------------------------------------------------
-# Demand model constants
-# ---------------------------------------------------------------------------
-
-MIN_WORKERS = 3
-MAX_WORKERS = 7
-DEFAULT_LABOUR_PCT = 0.20
-DEFAULT_DEMAND_DIVISOR = 20.0  # dollars of labour budget per worker-hour
-DEFAULT_MIN_SHIFT_HOURS = 2
-DEFAULT_MAX_WEEKLY_HOURS = 40.0
-
-# Role split by total workers: workers -> (cook, pack, cash).
-# Cook is always exactly 1; Pack is prioritised over Cash above the floor.
-ROLE_SPLIT: dict[int, tuple[int, int, int]] = {
-    3: (1, 1, 1),
-    4: (1, 2, 1),
-    5: (1, 2, 2),
-    6: (1, 3, 2),
-    7: (1, 4, 2),
-}
-
-ROLE_KEYS = ("COOK", "PACKLINER", "CASHIER")
-ROLE_DISPLAY = {"COOK": "Cook", "PACKLINER": "Packliner", "CASHIER": "Cashier"}
-DAY_CODES = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
-
-
-# ---------------------------------------------------------------------------
-# Request models (mirrors apps/api/src/services/mlClient.ts payload)
-# ---------------------------------------------------------------------------
 
 
 class SalesRow(BaseModel):
     date: str
     hour: int
-    sales_amount: float
+    sales_amount: float = Field(alias="sales_amount")
 
 
-class EmployeeIn(BaseModel):
-    id: str | None = None
-    userId: str
-    name: str = "Employee"
-    role: str = "CASHIER"
+class AvailabilityRow(BaseModel):
+    userId: str | None = None
+    user_id: str | None = None
+    dayOfWeek: int | None = None
+    day_of_week: int | None = None
+    startTime: str | None = None
+    start_time: str | None = None
+    endTime: str | None = None
+    end_time: str | None = None
 
-    model_config = {"extra": "allow"}
 
-
-class AvailabilityIn(BaseModel):
-    userId: str
-    dayOfWeek: int = Field(ge=0, le=6)
-    startTime: str
-    endTime: str
-    block: str | None = None
-
-    model_config = {"extra": "allow"}
+class EmployeeRow(BaseModel):
+    userId: str | None = None
+    user_id: str | None = None
+    role: str = "STAFF"
 
 
 class GenerateRequest(BaseModel):
     workplace_id: str
     week_start: str
-    sales: list[SalesRow] = []
-    preferences: dict = {}
-    employees: list[EmployeeIn] = []
-    availability: list[AvailabilityIn] = []
-
-    model_config = {"extra": "allow"}
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+    schedule_id: str | None = None
+    sales: list[dict[str, Any]] = Field(default_factory=list)
+    preferences: dict[str, Any] = Field(default_factory=dict)
+    employees: list[dict[str, Any]] = Field(default_factory=list)
+    availability: list[dict[str, Any]] = Field(default_factory=list)
 
 
-def parse_hhmm(t: str) -> int:
-    """'17:30' -> minutes since midnight. '00:00' as an end time means midnight (1440)."""
-    h, m = int(t[:2]), int(t[3:5])
-    return h * 60 + m
+DAY_NAMES = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
+
+_SALES_FOLDER = Path(__file__).parent / "hourly sales data"
+# File (11).xls = April 11, 2026 (Saturday, Python weekday 5).
+# Files are consecutive daily cash sheets: (N) = April 11 + (N – 11) days.
+# Verified by user's analysis: file (20) = April 20 Monday, (21) = Tuesday, etc.
+_FILE_BASE_DATE = _date(2026, 4, 11)
+_FILE_BASE_NUM = 11
 
 
-def fmt_hour(hour: int) -> str:
-    """Hour index (may be 24) -> 'HH:MM' wall-clock string."""
-    return f"{hour % 24:02d}:00"
-
-
-def workers_for_sales(sales: float, labour_pct: float, divisor: float) -> int:
-    raw = round((sales * labour_pct) / divisor)
-    return max(MIN_WORKERS, min(MAX_WORKERS, raw))
-
-
-def role_split(workers: int) -> dict[str, int]:
-    w = max(MIN_WORKERS, min(MAX_WORKERS, workers))
-    cook, pack, cash = ROLE_SPLIT[w]
-    return {"COOK": cook, "PACKLINER": pack, "CASHIER": cash}
-
-
-def normalize_role_key(role: str) -> str:
-    r = (role or "").strip().upper()
-    if r in ROLE_KEYS:
-        return r
-    aliases = {"PACK": "PACKLINER", "CASH": "CASHIER", "STAFF": "CASHIER"}
-    return aliases.get(r, "CASHIER")
-
-
-# ---------------------------------------------------------------------------
-# Step 1 — demand curve for the target week
-# ---------------------------------------------------------------------------
-
-
-def build_demand(
-    sales: list[SalesRow], week_start: date, labour_pct: float, divisor: float
-) -> dict[date, dict[int, dict]]:
-    """Map sales onto the target week by day-of-week and compute hourly worker demand.
-
-    Returns {target_date: {hour: {"sales": float, "workers": int}}}.
-    Hours with zero sales are excluded (treated as closed).
+def load_sales_from_folder(week_start: str) -> list[dict[str, Any]]:
     """
-    demand: dict[date, dict[int, dict]] = defaultdict(dict)
-    for row in sales:
-        try:
-            sale_date = date.fromisoformat(row.date[:10])
-        except ValueError:
-            continue
-        if row.sales_amount <= 0:
-            continue
-        # week_start is Monday; offset Monday=0 ... Sunday=6
-        offset = sale_date.weekday()
-        target = week_start + timedelta(days=offset)
-        slot = demand[target].setdefault(row.hour, {"sales": 0.0, "workers": 0})
-        slot["sales"] += row.sales_amount
+    Parse Drop Chart PDFs and XLS/CSV cash sheets from 'hourly sales data' folder.
 
-    for day_slots in demand.values():
-        for slot in day_slots.values():
-            slot["workers"] = workers_for_sales(slot["sales"], labour_pct, divisor)
-    return demand
+    Priority:
+      1. Drop Chart PDFs — authoritative: they carry the exact date and hourly sales.
+         These are loaded first; their DOW/hour data takes precedence.
+      2. Cash Sheet XLS/CSV files — numbered sequentially, no embedded date.
+         Each file's date is inferred from _FILE_BASE_DATE + offset.
+         All dates are included — holidays like Victoria Day (Monday Apr 20) are
+         valid Monday data and must contribute to Monday DOW averages.
 
-
-# ---------------------------------------------------------------------------
-# Step 2/3 — decompose role demand curves into shifts
-# ---------------------------------------------------------------------------
-
-
-def build_role_shifts(
-    hourly_workers: dict[int, int], min_shift_hours: int
-) -> list[tuple[int, int]]:
-    """Decompose an hourly headcount curve into shift (start_hour, end_hour) tuples.
-
-    LIFO stack: rising demand opens new shifts; falling demand closes the most
-    recently opened ones first, so base staff hold long shifts and peak staff
-    cover short rush windows. Shifts shorter than min_shift_hours are extended
-    forward (kept on through brief dips) when the day allows it.
+    Averaging per (DOW, hour) gives realistic per-day demand.  Result is remapped
+    to the requested schedule week.  API-provided sales data is used only if this
+    folder yields nothing.
     """
-    if not hourly_workers:
+    if not _SALES_FOLDER.exists():
         return []
-    hours = sorted(hourly_workers)
-    close_hour = hours[-1] + 1
 
-    open_stack: list[int] = []  # start hours of currently open shifts
-    shifts: list[tuple[int, int]] = []
+    # Accumulate sales by (Python weekday 0=Mon, hour) across all sources.
+    dow_hour: dict[tuple[int, int], list[float]] = {}
 
-    prev_hour = None
-    for h in hours:
-        if prev_hour is not None and h > prev_hour + 1:
-            # gap in operating hours: close everything
-            for start in reversed(open_stack):
-                shifts.append((start, prev_hour + 1))
-            open_stack = []
-        needed = hourly_workers[h]
-        while len(open_stack) < needed:
-            open_stack.append(h)
-        while len(open_stack) > needed:
-            start = open_stack.pop()
-            end = h
-            if end - start < min_shift_hours and end + 1 <= close_hour:
-                end = min(start + min_shift_hours, close_hour)
-            shifts.append((start, end))
-        prev_hour = h
+    # ── Step 1: Drop Chart PDFs (authoritative — exact dates, exact hourly sales) ──
+    # All Drop Chart dates are treated as representative weekly patterns — no date
+    # filtering.  Track which dates were loaded so Cash Sheets don't double-count.
+    drop_chart_dates: set[str] = set()
+    for pdf_path in sorted(_SALES_FOLDER.glob("Drop Chart*.pdf")):
+        try:
+            meta = extract_drop_chart_metadata(str(pdf_path))
+            sale_date = meta["date"]
+            dow = meta["day_of_week"]  # Python weekday 0=Monday
+            for hour, sales in meta["hourly_sales"].items():
+                key = (dow, int(hour))
+                dow_hour.setdefault(key, []).append(float(sales))
+            drop_chart_dates.add(sale_date)
+        except Exception:
+            continue
 
-    for start in reversed(open_stack):
-        shifts.append((start, close_hour))
+    # ── Step 2: Cash Sheet XLS/CSV files (prefer CSV over XLS for same number) ──
+    file_map: dict[int, str] = {}
+    for fpath in sorted(_SALES_FOLDER.glob("Cash Sheet - Hourly Sales*.*")):
+        if fpath.suffix.lower() not in (".xls", ".csv"):
+            continue
+        m = re.search(r"\((\d+)\)", fpath.name)
+        if not m:
+            continue
+        num = int(m.group(1))
+        if num not in file_map or fpath.suffix.lower() == ".csv":
+            file_map[num] = str(fpath)
 
-    # Extend any still-short shifts to the minimum where possible
-    fixed = []
-    for start, end in shifts:
-        if end - start < min_shift_hours:
-            end = min(start + min_shift_hours, close_hour)
-        if end > start:
-            fixed.append((start, end))
-    fixed.sort()
-    return fixed
+    for num, fpath in sorted(file_map.items()):
+        file_date = _FILE_BASE_DATE + timedelta(days=num - _FILE_BASE_NUM)
+        date_str = file_date.isoformat()
+        # Skip dates already loaded from a Drop Chart to avoid double-counting
+        if date_str in drop_chart_dates:
+            continue
+        dow = file_date.weekday()  # 0=Monday
+        try:
+            records = parse_clearview_cash_sheet(fpath)
+            for r in records:
+                key = (dow, int(r["hour"]))
+                dow_hour.setdefault(key, []).append(float(r["total_sales"]))
+        except Exception:
+            continue
 
+    # ── Step 3: Fill any missing (DOW, hour) operating slots ──
+    # When a particular DOW/hour has no data from files, synthesise a value using
+    # the known HOURLY_DISTRIBUTIONS fractions scaled by the average daily total
+    # derived from existing data for that DOW.  This ensures the constraint solver
+    # always gets a full per-hour demand profile (never flat-floor-only).
+    for dow in range(7):
+        op_open = OPERATING_HOURS[dow]["open"]
+        op_close = OPERATING_HOURS[dow]["close"]
+        dist = HOURLY_DISTRIBUTIONS.get(dow, {})
 
-# ---------------------------------------------------------------------------
-# Step 4 — assignment with availability, constraints, fairness
-# ---------------------------------------------------------------------------
+        # Average sales per hour from actual file data for this DOW
+        existing_avgs: dict[int, float] = {
+            hour: sum(vals) / len(vals)
+            for (d, hour), vals in dow_hour.items()
+            if d == dow
+        }
 
+        if not existing_avgs:
+            # No data at all for this DOW — skip; workersNeededMaps will enforce floor
+            continue
 
-class Assigner:
-    def __init__(
-        self,
-        employees: list[EmployeeIn],
-        availability: list[AvailabilityIn],
-        max_weekly_hours: float,
-    ):
-        self.max_weekly_hours = max_weekly_hours
-        self.by_role: dict[str, list[EmployeeIn]] = defaultdict(list)
-        for e in employees:
-            self.by_role[normalize_role_key(e.role)].append(e)
-        # availability windows in minutes: {userId: {dow: [(start, end)]}}
-        self.avail: dict[str, dict[int, list[tuple[int, int]]]] = defaultdict(
-            lambda: defaultdict(list)
-        )
-        for a in availability:
-            if a.block == "off":
+        # Estimate full-day total using the distribution fractions we DO have data for
+        known_fraction = sum(dist.get(h, 0.0) for h in existing_avgs)
+        if known_fraction > 0:
+            est_daily_total = sum(existing_avgs.values()) / known_fraction
+        else:
+            est_daily_total = sum(existing_avgs.values())
+
+        for hour in range(op_open, op_close):
+            if (dow, hour) not in dow_hour:
+                fraction = dist.get(hour, 0.0)
+                synthetic = round(est_daily_total * fraction, 2) if fraction > 0 else 0.0
+                dow_hour[(dow, hour)] = [synthetic]
+
+    if not dow_hour:
+        return []
+
+    # ── Step 4: Map per-DOW averages to each day of the requested schedule week ──
+    start = _date.fromisoformat(week_start)
+    rows: list[dict[str, Any]] = []
+    for day_offset in range(7):
+        d = start + timedelta(days=day_offset)
+        date_str = d.isoformat()
+        dow = d.weekday()
+        hours_seen: set[int] = set()
+        for (bucket_dow, hour), values in sorted(dow_hour.items()):
+            if bucket_dow != dow or hour in hours_seen:
                 continue
-            start = parse_hhmm(a.startTime)
-            end = parse_hhmm(a.endTime)
-            if end == 0:
-                end = 24 * 60  # midnight end
-            if end > start:
-                self.avail[a.userId][a.dayOfWeek].append((start, end))
-        self.hours_assigned: dict[str, float] = defaultdict(float)
-        self.days_assigned: dict[str, set[date]] = defaultdict(set)
+            hours_seen.add(hour)
+            rows.append({
+                "date": date_str,
+                "hour": hour,
+                "sales_amount": round(sum(values) / len(values), 2),
+            })
 
-    def is_available(self, user_id: str, dow: int, start_min: int, end_min: int) -> bool:
-        return any(
-            ws <= start_min and end_min <= we for ws, we in self.avail[user_id][dow]
-        )
-
-    def pick(
-        self, role_key: str, day: date, start_hour: int, end_hour: int
-    ) -> EmployeeIn | None:
-        dow = (day.weekday() + 1) % 7  # Python Monday=0 -> JS Sunday=0 convention
-        start_min, end_min = start_hour * 60, end_hour * 60
-        shift_hours = end_hour - start_hour
-
-        candidates = [
-            e
-            for e in self.by_role[role_key]
-            if day not in self.days_assigned[e.userId]
-            and self.hours_assigned[e.userId] + shift_hours <= self.max_weekly_hours
-            and self.is_available(e.userId, dow, start_min, end_min)
-        ]
-        if not candidates:
-            return None
-        # Fairness: fewest hours so far, then fewest distinct days, stable by name
-        candidates.sort(
-            key=lambda e: (
-                self.hours_assigned[e.userId],
-                len(self.days_assigned[e.userId]),
-                e.name,
-            )
-        )
-        chosen = candidates[0]
-        self.hours_assigned[chosen.userId] += shift_hours
-        self.days_assigned[chosen.userId].add(day)
-        return chosen
+    return rows
 
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
+def verify_ml_key(x_ml_engine_key: str | None) -> None:
+    if not ML_ENGINE_API_KEY:
+        return
+    if x_ml_engine_key != ML_ENGINE_API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid ML engine API key")
+
+
+def _get(row: dict[str, Any], *keys: str, default=None):
+    for k in keys:
+        if k in row and row[k] is not None:
+            return row[k]
+    return default
 
 
 @app.get("/health")
@@ -296,92 +211,89 @@ def health():
 
 
 @app.post("/generate")
-def generate(request: GenerateRequest):
+def generate(
+    request: GenerateRequest,
+    x_ml_engine_key: str | None = Header(default=None),
+):
+    verify_ml_key(x_ml_engine_key)
+
     prefs = request.preferences or {}
-    labour_pct = float(prefs.get("labourCostPct", DEFAULT_LABOUR_PCT))
-    divisor = float(prefs.get("demandDivisor", DEFAULT_DEMAND_DIVISOR))
-    min_shift_hours = int(prefs.get("minShiftHours", DEFAULT_MIN_SHIFT_HOURS))
-    max_weekly_hours = float(prefs.get("maxWeeklyHours", DEFAULT_MAX_WEEKLY_HOURS))
+    labour_pct = float(prefs.get("labourCostPct") or 0.2)
+    avg_wage = float(prefs.get("avgHourlyWage") or 20.0)
 
-    try:
-        week_start = date.fromisoformat(request.week_start[:10])
-    except ValueError:
-        return {"status": "error", "message": f"Invalid week_start: {request.week_start}"}
+    # Always read from the local XLS folder — it is the canonical source.
+    # Fall back to API-provided sales only if the folder yields nothing.
+    sales = load_sales_from_folder(request.week_start) or request.sales
 
-    flags: list[dict] = []
-    demand = build_demand(request.sales, week_start, labour_pct, divisor)
+    workers_needed = build_workers_needed(sales, labour_pct, avg_wage)
+    by_hour = workers_needed["byHour"]
+    day_sales = {d["date"]: d["sales"] for d in workers_needed["byDay"]}
 
-    by_hour = []
-    by_day = []
-    for day in sorted(demand):
-        slots = demand[day]
-        day_sales = 0.0
-        day_workers_peak = 0
-        for hour in sorted(slots):
-            slot = slots[hour]
-            day_sales += slot["sales"]
-            day_workers_peak = max(day_workers_peak, slot["workers"])
-            by_hour.append(
-                {
-                    "date": day.isoformat(),
-                    "hour": hour,
-                    "sales": round(slot["sales"], 2),
-                    "workers": slot["workers"],
-                }
-            )
-        by_day.append(
-            {"date": day.isoformat(), "sales": round(day_sales, 2), "workers": day_workers_peak}
-        )
+    prior = load_prior()
+    if prior:
+        by_hour = apply_prior_to_workers(by_hour, labour_pct, prior)
+    else:
+        by_day = workers_needed["byDay"]
 
-    assigner = Assigner(request.employees, request.availability, max_weekly_hours)
-    shifts_out: list[dict] = []
+    # Smooth per-hour demand to shift-window peaks AFTER all shaping (prior included).
+    # This ensures the constraint solver sees a consistent cap across each shift window
+    # (open: open_hour→17:00, close: 17:00→close_hour) so low-demand early hours don't
+    # block valid open-crew assignments needed for later peak hours.
+    by_hour = smooth_demand_to_shift_windows(by_hour)
+    workers_needed["byHour"] = by_hour
 
-    for day in sorted(demand):
-        slots = demand[day]
-        # Per-role hourly demand from the role split
-        role_hourly: dict[str, dict[int, int]] = {r: {} for r in ROLE_KEYS}
-        for hour, slot in slots.items():
-            split = role_split(slot["workers"])
-            for r in ROLE_KEYS:
-                role_hourly[r][hour] = split[r]
+    # Rebuild by_day from smoothed hourly data for a consistent daily summary.
+    day_workers: dict[str, int] = {}
+    for h in by_hour:
+        day_workers[h["date"]] = max(day_workers.get(h["date"], MANDATORY_FLOOR), h["workers"])
+    by_day = [
+        {
+            "date": date,
+            "sales": day_sales.get(date, 0.0),
+            "mandatory_floor": MANDATORY_FLOOR,
+            "formula_headcount": day_workers.get(date, MANDATORY_FLOOR),
+            "extra_workers": max(0, day_workers.get(date, MANDATORY_FLOOR) - MANDATORY_FLOOR),
+            "workers": day_workers.get(date, MANDATORY_FLOOR),
+        }
+        for date in sorted(day_workers.keys())
+    ]
 
-        dow_js = (day.weekday() + 1) % 7
-        for role_key in ROLE_KEYS:
-            for start_hour, end_hour in build_role_shifts(role_hourly[role_key], min_shift_hours):
-                emp = assigner.pick(role_key, day, start_hour, end_hour)
-                if emp is None:
-                    flags.append(
-                        {
-                            "type": "understaffed",
-                            "date": day.isoformat(),
-                            "hour": start_hour,
-                            "message": (
-                                f"No available {ROLE_DISPLAY[role_key]} for "
-                                f"{day.isoformat()} {fmt_hour(start_hour)}–{fmt_hour(end_hour)}"
-                            ),
-                        }
-                    )
-                    continue
-                shifts_out.append(
-                    {
-                        "id": str(uuid.uuid4()),
-                        "employeeId": emp.userId,
-                        "day": DAY_CODES[dow_js],
-                        "shiftDate": day.isoformat(),
-                        "startTime": fmt_hour(start_hour),
-                        "endTime": fmt_hour(end_hour),
-                        "role": emp.role,
-                        "location": "Main",
-                    }
-                )
+    avail_user_ids = set()
+    avail_blocks: list[tuple[str, int, str, str]] = []
+    for a in request.availability:
+        uid = _get(a, "userId", "user_id")
+        if not uid:
+            continue
+        avail_user_ids.add(str(uid))
+        avail_blocks.append((
+            str(uid),
+            int(_get(a, "dayOfWeek", "day_of_week", default=0)),
+            str(_get(a, "startTime", "start_time", default="09:00"))[:5],
+            str(_get(a, "endTime", "end_time", default="17:00"))[:5],
+        ))
 
-    if not demand:
-        flags.append({"type": "no_demand", "message": "No sales data with positive amounts"})
+    schedulable = [
+        e for e in request.employees
+        if str(_get(e, "userId", "user_id", default="")) in avail_user_ids
+    ]
 
-    return {
+    # Shift assignment is done by the LLM + constraint solver in the API.
+    # ML engine only computes demand (workersNeeded); do not fill entire availability blocks.
+    shifts: list[dict[str, str]] = []
+    flags: list[dict[str, str]] = []
+
+    if not schedulable and request.employees:
+        flags.append({"type": "understaffed", "message": "No employees with availability for this week"})
+    elif not request.employees:
+        flags.append({"type": "understaffed", "message": "No employees in roster"})
+
+    response: dict[str, Any] = {
         "scheduleId": str(uuid.uuid4()),
         "status": "draft",
         "workersNeeded": {"byHour": by_hour, "byDay": by_day},
-        "shifts": shifts_out,
+        "shifts": shifts,
         "flags": flags,
     }
+    if prior:
+        response["schedulingPrior"] = build_style_hints(prior)
+    return response

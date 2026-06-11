@@ -110,6 +110,29 @@ export function selectionFromBlockInput(
   };
 }
 
+/** Build a grid preserving exact start/end times (for partial or custom windows). */
+export function gridFromCustomBlocks(
+  blocks: Array<{ dayOfWeek: number; startTime: string; endTime: string }>
+) {
+  const grid: Record<
+    string,
+    { block: BlockKey; startTime: string; endTime: string; label: string }[]
+  > = {};
+  for (const b of blocks) {
+    const day = dayNameFromDow(b.dayOfWeek);
+    const matched = matchBlockFromTimes(b.dayOfWeek, b.startTime, b.endTime) ?? "morning";
+    grid[day] = [
+      {
+        block: matched,
+        startTime: b.startTime,
+        endTime: b.endTime,
+        label: `${b.startTime.slice(0, 5)}–${b.endTime.slice(0, 5)}`,
+      },
+    ];
+  }
+  return grid;
+}
+
 export function matchBlockFromTimes(
   dayOfWeek: number,
   startTime: string,

@@ -8,6 +8,7 @@ export * from "./schedule.js";
 export * from "./employee.js";
 export * from "./clearview.js";
 export * from "./integrations.js";
+export * from "./llm.js";
 
 export const HealthResponse = z.object({
   status: z.string(),

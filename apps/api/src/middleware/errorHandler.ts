@@ -17,7 +17,10 @@ export function errorHandler(
     return;
   }
   console.error(err);
-  res.status(500).json({ error: "Internal server error" });
+  const isProd = process.env.NODE_ENV === "production";
+  res.status(500).json({
+    error: isProd ? "Internal server error" : err instanceof Error ? err.message : "Internal server error",
+  });
 }
 
 export function httpError(status: number, message: string): Error & { status: number } {

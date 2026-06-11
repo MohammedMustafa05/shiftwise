@@ -22,6 +22,15 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,14 +38,32 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
-      - run: npm run db:migrate -w /api
+      - run: npm run db:migrate -w @shiftagent/api
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shiftagent
       - run: npm run test:api
         env:
           USE_REAL_POSTGRES: "1"
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shiftagent
-          JWT_SECRET: test-secret
-          CRON_SECRET: dev-cron-secret
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-secret-with-at-least-32-characters-long
+          CRON_SECRET: dev-cron-secret-with-32-chars-min
           TOKEN_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
           CLEARVIEW_MODE: mock
+          RATE_LIMIT_DISABLED: "1"
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose build api ml-engine
+      - run: docker compose up -d postgres redis
+      - run: sleep 5
+      - run: docker compose up -d ml-engine api
+      - run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3001/health && curl -sf http://localhost:8000/health && exit 0
+            sleep 2
+          done
+          exit 1

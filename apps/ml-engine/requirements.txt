@@ -5,3 +5,10 @@ scikit-learn==1.6.1
 psycopg2-binary==2.9.10
 python-dotenv==1.0.1
 pydantic==2.10.4
+pypdf>=5.0.0
+pymupdf>=1.24.0
+pytesseract>=0.3.10
+Pillow>=10.0.0
+lxml>=5.0.0
+html5lib>=1.1
+beautifulsoup4>=4.12.0

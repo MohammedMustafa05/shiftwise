@@ -7,6 +7,10 @@ import { AvailabilityBlock, EmployeeProfile } from "@shiftagent/shared";
 import { z } from "zod";
 import { config } from "../config.js";
 import { addDays, formatDate, getWeekStart } from "../utils/dates.js";
+import {
+  buildDailyDemandFromHourly,
+  buildHourlyDemand,
+} from "../utils/labourDemand.js";
 
 const MlGeneratePayload = z.object({
   workplace_id: z.string(),
@@ -27,32 +31,13 @@ export function generateScheduleStub(
   availability: Array<z.infer<typeof AvailabilityBlock> & { userId?: string }>
 ): GenerateScheduleResponse {
   const labourPct = preferences.labourCostPct ?? 0.2;
-  const avgWage = preferences.avgHourlyWage ?? 18.5;
   const start = getWeekStart(new Date(`${weekStart}T12:00:00Z`));
 
-  const byHour = sales.map((s) => {
-    const budget = s.salesAmount * labourPct;
-    const workers = Math.max(1, Math.ceil(budget / avgWage));
-    return {
-      date: s.date,
-      hour: s.hour,
-      sales: s.salesAmount,
-      workers,
-    };
-  });
-
-  const dayMap = new Map<string, { sales: number; workers: number }>();
-  for (const h of byHour) {
-    const cur = dayMap.get(h.date) ?? { sales: 0, workers: 0 };
-    cur.sales += h.sales;
-    cur.workers += h.workers;
-    dayMap.set(h.date, cur);
-  }
-  const byDay = [...dayMap.entries()].map(([date, v]) => ({
-    date,
-    sales: v.sales,
-    workers: Math.ceil((v.sales * labourPct) / avgWage),
-  }));
+  const byHour = buildHourlyDemand(
+    sales.map((s) => ({ date: s.date, hour: s.hour, salesAmount: s.salesAmount })),
+    labourPct
+  );
+  const byDay = buildDailyDemandFromHourly(byHour, labourPct);
 
   const shifts: GenerateScheduleResponse["shifts"] = [];
   const flags: GenerateScheduleResponse["flags"] = [];
@@ -118,9 +103,13 @@ export async function callMlEngine(
   };
 
   try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (config.mlEngineApiKey) {
+      headers["X-ML-Engine-Key"] = config.mlEngineApiKey;
+    }
     const res = await fetch(`${config.mlEngineUrl}/generate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(30_000),
     });

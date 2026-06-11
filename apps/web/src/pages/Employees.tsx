@@ -130,12 +130,13 @@ function EmployeeDrawer({
   employee, onSave, onRemove, onClose,
 }: {
   employee: Partial<Employee>;
-  onSave: (emp: Employee) => void;
+  onSave: (emp: Employee, password?: string) => void;
   onRemove?: (emp: Employee) => void;
   onClose: () => void;
 }) {
   const isNew = !employee.id;
   const [form, setForm] = useState({ ...DEFAULT_EMPLOYEE, ...employee });
+  const [password, setPassword] = useState('');
 
   function set<K extends keyof typeof form>(key: K, val: (typeof form)[K]) {
     setForm(f => ({ ...f, [key]: val }));
@@ -156,11 +157,11 @@ function EmployeeDrawer({
       ...form,
       id: employee.id ?? generateId(),
       created_at: employee.created_at ?? new Date().toISOString(),
-    });
+    }, isNew ? password : undefined);
     onClose();
   }
 
-  const canSave = Boolean(form.name && form.email);
+  const canSave = Boolean(form.name && form.email && (!isNew || password.length >= 8));
 
   return (
     <>
@@ -237,6 +238,15 @@ function EmployeeDrawer({
                 hint="This is the name shown on the schedule"
               />
               <DrawerTextField label="Email Address" value={form.email} onChange={v => set('email', v)} type="email" icon={Mail} />
+              {isNew && (
+                <DrawerTextField
+                  label="Password"
+                  value={password}
+                  onChange={setPassword}
+                  type="password"
+                  hint="Minimum 8 characters — employee uses this to log in on mobile"
+                />
+              )}
               <DrawerTextField label="Phone Number" value={form.phone} onChange={v => set('phone', v)} type="tel" icon={Phone} />
             </div>
           </div>
@@ -443,12 +453,12 @@ export default function Employees() {
     );
   }), [employees, search, filterRole, filterExp, filterType]);
 
-  async function handleSave(emp: Employee) {
+  async function handleSave(emp: Employee, password?: string) {
     if (isApiConfigured && workplaceId) {
       try {
         const isNew = !employees.some(e => e.id === emp.id);
         const saved = isNew
-          ? await api.createEmployee(workplaceId, emp)
+          ? await api.createEmployee(workplaceId, emp, password)
           : await api.updateEmployee(workplaceId, emp);
         setEmployees(prev => {
           const idx = prev.findIndex(e => e.id === emp.id);

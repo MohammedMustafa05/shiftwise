@@ -1,0 +1,3577 @@
+{
+  "restaurant": "LSL Milton (6412)",
+  "imported_at": "2026-06-04",
+  "weeks": [
+    {
+      "week_ending": "April 19, 2026",
+      "shifts": [
+        {
+          "employee": "Murtaza",
+          "dow": 0,
+          "start": "10:00",
+          "end": "19:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": 0,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": 0,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": 0,
+          "start": "10:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": 0,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": 0,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 0,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": 0,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 0,
+          "start": "18:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Murtaza",
+          "dow": 1,
+          "start": "10:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": 1,
+          "start": "10:00",
+          "end": "15:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": 1,
+          "start": "16:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": 1,
+          "start": "10:00",
+          "end": "16:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": 1,
+          "start": "15:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": 1,
+          "start": "18:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Murtaza",
+          "dow": 2,
+          "start": "10:00",
+          "end": "16:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": 2,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": 2,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": 2,
+          "start": "17:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": 2,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": 2,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Murtaza",
+          "dow": 3,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": 3,
+          "start": "10:00",
+          "end": "15:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": 3,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": 3,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": 3,
+          "start": "17:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": 3,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 3,
+          "start": "15:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Murtaza",
+          "dow": 4,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": 4,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": 4,
+          "start": "15:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": 4,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": 4,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": 4,
+          "start": "10:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 4,
+          "start": "18:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Murtaza",
+          "dow": 5,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": 5,
+          "start": "17:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": 5,
+          "start": "17:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": 5,
+          "start": "15:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": 5,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": 5,
+          "start": "11:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Murtaza",
+          "dow": 6,
+          "start": "11:00",
+          "end": "15:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": 6,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": 6,
+          "start": "15:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": 6,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": 6,
+          "start": "11:00",
+          "end": "22:00"
+        }
+      ],
+      "source": "lsl schedule july 9th.pdf"
+    },
+    {
+      "week_ending": "May 31, 2026",
+      "shifts": [
+        {
+          "employee": "Gazia",
+          "dow": 0,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": 1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Ayaan",
+          "dow": 0,
+          "start": "18:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Ayaan",
+          "dow": 1,
+          "start": "17:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": 0,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": 1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": 2,
+          "start": "17:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": 0,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": 1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": 0,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": 1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": 2,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": 0,
+          "start": "10:00",
+          "end": "14:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": 1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": 2,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Ayma",
+          "dow": 0,
+          "start": "10:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Ayma",
+          "dow": 1,
+          "start": "10:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 0,
+          "start": "10:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 2,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": 0,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": 1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 0,
+          "start": "10:00",
+          "end": "14:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 2,
+          "start": "17:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": 0,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": 0,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": 1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": 0,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": 1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Logan",
+          "dow": 0,
+          "start": "17:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Merab",
+          "dow": 0,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Merab",
+          "dow": 1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Shahmeer",
+          "dow": 0,
+          "start": "17:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Shahmeer",
+          "dow": 1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": 0,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": 1,
+          "start": "17:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": 2,
+          "start": "10:30",
+          "end": "17:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": 3,
+          "start": "15:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": 0,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": 1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": 2,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": 0,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": 1,
+          "start": "12:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": 0,
+          "start": "10:00",
+          "end": "16:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": 1,
+          "start": "10:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": 2,
+          "start": "10:30",
+          "end": "22:00"
+        }
+      ],
+      "source": "Revised Schedule (May 25-31).pdf"
+    },
+    {
+      "week_ending": "April 26, 2026",
+      "shifts": [
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "16:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:30",
+          "end": "15:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "15:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "10:30",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "00:00",
+          "end": "15:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": -1,
+          "start": "15:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "15:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "14:00",
+          "end": "19:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": -1,
+          "start": "15:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mariam N.",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Logan",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Logan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "16:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "16:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "15:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Merab",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Shahmeer",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sana S. \u2018",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Sana S. \u2018",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:30",
+          "end": "23:00"
+        },
+        {
+          "employee": "S. \u2018",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z.",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z.",
+          "dow": -1,
+          "start": "10:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z.",
+          "dow": -1,
+          "start": "10:30",
+          "end": "22:00"
+        }
+      ],
+      "source": "lsl schedule April 26th.pdf"
+    },
+    {
+      "week_ending": "May 17, 2026",
+      "shifts": [
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "15:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "15:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "15:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "14:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Logan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Merab",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Merab",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Shahmeer",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "10:30",
+          "end": "17:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": -1,
+          "start": "12:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z. 10M - 10 Pm",
+          "dow": -1,
+          "start": "17:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z. 10M - 10 Pm",
+          "dow": -1,
+          "start": "15:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z. 10M - 10 Pm",
+          "dow": -1,
+          "start": "10:30",
+          "end": "22:00"
+        }
+      ],
+      "source": "Schedule May 16th.pdf"
+    },
+    {
+      "week_ending": "April 5, 2026",
+      "shifts": [
+        {
+          "employee": "Murtaza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "19:00"
+        },
+        {
+          "employee": "Murtaza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "16:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "00:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Mariam N.",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Logan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "16:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "15:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Merab",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Merab",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Shahmeer",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "11:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Syed Muhammad Kazim Hasnainz.",
+          "dow": -1,
+          "start": "18:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Syed Muhammad Kazim Hasnainz.",
+          "dow": -1,
+          "start": "18:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Syed Muhammad Kazim Hasnainz.",
+          "dow": -1,
+          "start": "18:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Syed Muhammad Kazim Hasnainz.",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        }
+      ],
+      "source": "schedule april 5th.pdf"
+    },
+    {
+      "week_ending": "May 3, 2026",
+      "shifts": [
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "16:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "15:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "15:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "15:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:30",
+          "end": "15:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "14:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": -1,
+          "start": "15:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "14:00",
+          "end": "19:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": -1,
+          "start": "10:30",
+          "end": "17:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Logan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Logan",
+          "dow": -1,
+          "start": "15:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Merab",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Merab",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "10:30",
+          "end": "17:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": -1,
+          "start": "12:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": -1,
+          "start": "15:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": -1,
+          "start": "10:30",
+          "end": "22:00"
+        }
+      ],
+      "source": "Schedule May 3.pdf"
+    },
+    {
+      "week_ending": "March 22, 2026",
+      "shifts": [
+        {
+          "employee": "Murtaza",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "19:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "14:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "19:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "15:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Merab",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Shahmeer",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Shahmeer",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "17:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z.",
+          "dow": -1,
+          "start": "18:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z.",
+          "dow": -1,
+          "start": "18:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z.",
+          "dow": -1,
+          "start": "17:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z.",
+          "dow": -1,
+          "start": "11:00",
+          "end": "13:00"
+        }
+      ],
+      "source": "LSL schedule March 22nd.pdf"
+    },
+    {
+      "week_ending": "May 24, 2026",
+      "shifts": [
+        {
+          "employee": "Murtaza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Murtaza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "18:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "16:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Ayma",
+          "dow": -1,
+          "start": "10:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Ayma",
+          "dow": -1,
+          "start": "10:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": -1,
+          "start": "10:00",
+          "end": "16:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "14:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Ghunwah M,",
+          "dow": -1,
+          "start": "18:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Ghunwah M,",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Logan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "\u2018Syed Mehrab Ali R.",
+          "dow": -1,
+          "start": "10:00",
+          "end": "16:00"
+        },
+        {
+          "employee": "\u2018Syed Mehrab Ali R.",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Shahmeer",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "10:30",
+          "end": "17:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "15:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "16:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": -1,
+          "start": "12:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z.",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z.",
+          "dow": -1,
+          "start": "17:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z.",
+          "dow": -1,
+          "start": "15:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z.",
+          "dow": -1,
+          "start": "10:30",
+          "end": "22:00"
+        }
+      ],
+      "source": "lsl schedule May 24.pdf"
+    },
+    {
+      "week_ending": "March 15, 2026",
+      "shifts": [
+        {
+          "employee": "Murtaza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "19:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "15:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "19:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "15:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "19:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mariam N.",
+          "dow": -1,
+          "start": "10:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "19:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "19:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "15:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "\u2018Syed Mehrab Ali R.",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Shahmeer",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Shahmeer",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "19:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z..",
+          "dow": -1,
+          "start": "18:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z..",
+          "dow": -1,
+          "start": "18:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z..",
+          "dow": -1,
+          "start": "18:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z..",
+          "dow": -1,
+          "start": "17:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z..",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        }
+      ],
+      "source": "LSL Schedule March 15.pdf"
+    },
+    {
+      "week_ending": "April 12, 2026",
+      "shifts": [
+        {
+          "employee": "Murtaza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "19:00"
+        },
+        {
+          "employee": "Murtaza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "Murtaza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Murtaza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "14:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "16:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "13:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "15:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": -1,
+          "start": "17:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Logan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "16:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "15:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Merab",
+          "dow": -1,
+          "start": "16:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Merab",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Shahmeer",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "11:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": -1,
+          "start": "18:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": -1,
+          "start": "18:00",
+          "end": "23:00"
+        }
+      ],
+      "source": "LSL sch April 12.pdf"
+    },
+    {
+      "week_ending": "June 7, 2026",
+      "shifts": [
+        {
+          "employee": "Gazia",
+          "dow": 0,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": 1,
+          "start": "11:00",
+          "end": "15:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": 2,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Ayaan",
+          "dow": 0,
+          "start": "17:30",
+          "end": "21:00"
+        },
+        {
+          "employee": "Ayaan",
+          "dow": 1,
+          "start": "18:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Ayaan",
+          "dow": 2,
+          "start": "17:30",
+          "end": "21:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": 0,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": 1,
+          "start": "18:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": 2,
+          "start": "10:30",
+          "end": "15:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": 3,
+          "start": "10:30",
+          "end": "15:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": 0,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": 1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": 0,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": 1,
+          "start": "16:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": 2,
+          "start": "11:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": 0,
+          "start": "10:45",
+          "end": "14:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": 1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": 2,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "2:30Pm",
+          "dow": 0,
+          "start": "10:30",
+          "end": "14:00"
+        },
+        {
+          "employee": "2:30Pm",
+          "dow": 1,
+          "start": "10:30",
+          "end": "14:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 0,
+          "start": "10:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 2,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 3,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 4,
+          "start": "10:00",
+          "end": "16:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": 0,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": 1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": 2,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 0,
+          "start": "10:45",
+          "end": "17:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 2,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": 3,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": 0,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": 1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": 2,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": 0,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": 1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": 0,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": 1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Logan",
+          "dow": 0,
+          "start": "17:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Merab",
+          "dow": 0,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Shahmeer",
+          "dow": 0,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Shahmeer",
+          "dow": 1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": 0,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": 1,
+          "start": "15:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": 0,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": 1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": 2,
+          "start": "10:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": 0,
+          "start": "12:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": 0,
+          "start": "10:00",
+          "end": "16:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": 1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": 2,
+          "start": "15:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": 3,
+          "start": "15:00",
+          "end": "22:00"
+        }
+      ],
+      "source": "Schedule June 1-7.pdf"
+    },
+    {
+      "week_ending": "March 29, 2026",
+      "shifts": [
+        {
+          "employee": "Murtaza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Mariam N.",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Logan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "14:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Aleeza",
+          "dow": -1,
+          "start": "15:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Merab",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Merab",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Shahmeer",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "11:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z.",
+          "dow": -1,
+          "start": "18:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "\u2018Syed Muhammad Kazim Hasnain Z.",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        }
+      ],
+      "source": "schedule Mar 29th.pdf"
+    },
+    {
+      "week_ending": "May 10, 2026",
+      "shifts": [
+        {
+          "employee": "Murtaza",
+          "dow": -1,
+          "start": "10:00",
+          "end": "15:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "16:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "15:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Mehran",
+          "dow": -1,
+          "start": "15:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Umrah",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Rupali",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Sakina",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Nafey",
+          "dow": -1,
+          "start": "15:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "10:00",
+          "end": "14:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "13:00"
+        },
+        {
+          "employee": "Hasan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Inaya",
+          "dow": -1,
+          "start": "17:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Ganma",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Gazia",
+          "dow": -1,
+          "start": "10:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Logan",
+          "dow": -1,
+          "start": "17:00",
+          "end": "21:00"
+        },
+        {
+          "employee": "Logan",
+          "dow": -1,
+          "start": "15:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "\u2018Syed Mehrab Ali R.",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "\u2018Syed Mehrab Ali R.",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Shahmeer R. {",
+          "dow": -1,
+          "start": "11:00",
+          "end": "17:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "17:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "10:30",
+          "end": "17:00"
+        },
+        {
+          "employee": "Kanza",
+          "dow": -1,
+          "start": "11:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "19:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Pankaj",
+          "dow": -1,
+          "start": "10:00",
+          "end": "20:00"
+        },
+        {
+          "employee": "Simran",
+          "dow": -1,
+          "start": "12:00",
+          "end": "18:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": -1,
+          "start": "10:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": -1,
+          "start": "19:00",
+          "end": "22:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": -1,
+          "start": "20:00",
+          "end": "23:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": -1,
+          "start": "10:30",
+          "end": "23:00"
+        },
+        {
+          "employee": "Kazim",
+          "dow": -1,
+          "start": "10:30",
+          "end": "22:00"
+        }
+      ],
+      "source": "Schedule May 10th.pdf"
+    }
+  ],
+  "learned_prior_summary": {
+    "dow_multiplier": {
+      "0": 1.849,
+      "1": 1.505,
+      "2": 1.087,
+      "3": 0.489,
+      "4": 0.678,
+      "5": 0.738,
+      "6": 0.653
+    },
+    "top_templates": [
+      {
+        "start": "17:00",
+        "end": "22:00",
+        "weight": 0.2191
+      },
+      {
+        "start": "10:00",
+        "end": "22:00",
+        "weight": 0.1461
+      },
+      {
+        "start": "10:00",
+        "end": "17:00",
+        "weight": 0.1339
+      },
+      {
+        "start": "11:00",
+        "end": "22:00",
+        "weight": 0.0417
+      },
+      {
+        "start": "11:00",
+        "end": "17:00",
+        "weight": 0.04
+      },
+      {
+        "start": "16:00",
+        "end": "22:00",
+        "weight": 0.0348
+      }
+    ]
+  }
+}

@@ -46,6 +46,8 @@ type ApiScheduleDetail = {
     role: string;
     location?: string;
     isLocked?: boolean;
+    isEngineSuggested?: boolean;
+    llmReasoning?: string | null;
   }>;
 };
 
@@ -164,6 +166,8 @@ export function mapScheduleFromApi(
       end_time: s.endTime,
       is_locked: s.isLocked ?? false,
       shift_type: inferShiftType(s.startTime),
+      is_engine_suggested: s.isEngineSuggested ?? false,
+      llm_reasoning: s.llmReasoning ?? null,
     };
   });
 

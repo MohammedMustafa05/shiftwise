@@ -11,6 +11,8 @@
     "dev": "npm run dev --workspaces --if-present",
     "dev:web": "npm run dev -w @shiftagent/web",
     "dev:api": "npm run dev -w @shiftagent/api",
+    "dev:ml": "cd apps/ml-engine && uvicorn main:app --reload --port 8000",
+    "dev:stack": "bash scripts/dev-stack.sh",
     "dev:mobile": "npm run dev -w @shiftagent/mobile",
     "dev:mobile:ios": "npm run ios -w @shiftagent/mobile",
     "dev:mobile:android": "npm run android -w @shiftagent/mobile",
@@ -20,6 +22,8 @@
     "test:ml": "cd apps/ml-engine && python -m pytest",
     "db:migrate": "npm run db:migrate -w @shiftagent/api",
     "db:seed": "npm run db:seed -w @shiftagent/api",
+    "db:seed-restaurant": "npm run db:seed-restaurant -w @shiftagent/api",
+    "db:setup-schedule-demo": "npm run db:setup-schedule-demo -w @shiftagent/api",
     "db:import-sales": "npm run db:import-sales -w @shiftagent/api"
   },
   "engines": {

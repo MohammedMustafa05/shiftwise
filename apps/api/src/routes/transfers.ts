@@ -174,7 +174,7 @@ transfersRouter.post("/me/:id/respond", requireRole("EMPLOYEE"), async (req, res
           ? `${responderName} accepted your shift request`
           : `${responderName} declined your shift request`,
         "/shift-requests",
-        req.params.id
+        String(req.params.id)
       );
     } else {
       await createNotification(
@@ -185,7 +185,7 @@ transfersRouter.post("/me/:id/respond", requireRole("EMPLOYEE"), async (req, res
           ? `${responderName} accepted your shift transfer`
           : `${responderName} declined your shift transfer`,
         "/transfer-shift",
-        req.params.id
+        String(req.params.id)
       );
     }
 

@@ -1,13 +1,16 @@
-import { config, assertDatabaseConfigured } from "./config.js";
+import { config, assertDatabaseConfigured, assertProductionConfig } from "./config.js";
 import { createApp } from "./app.js";
 import { startSalesSyncCron } from "./jobs/syncClearviewSales.js";
+import { startScheduleWorker } from "./workers/scheduleWorker.js";
 
 assertDatabaseConfigured();
+assertProductionConfig();
 
 const app = createApp();
 
 if (process.env.NODE_ENV !== "test") {
   startSalesSyncCron();
+  startScheduleWorker();
 }
 
 app.listen(config.port, () => {

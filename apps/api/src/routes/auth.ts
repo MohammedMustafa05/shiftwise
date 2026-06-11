@@ -114,16 +114,51 @@ authRouter.post("/login", async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/auth/join/:slug/info
+ * Public endpoint — returns workplace name & invite validity for the join page.
+ * No auth required (the token itself is the credential).
+ */
+authRouter.get("/join/:slug/info", async (req, res, next) => {
+  try {
+    const invite = await query<{
+      workplace_id: string;
+      workplace_name: string;
+      expires_at: Date | null;
+    }>(
+      `SELECT wi.workplace_id, w.name AS workplace_name, wi.expires_at
+       FROM workplace_invites wi
+       JOIN workplaces w ON w.id = wi.workplace_id
+       WHERE wi.slug = $1 OR w.slug = $1 LIMIT 1`,
+      [req.params.slug]
+    );
+    if (invite.rows.length === 0) throw httpError(404, "Invalid or expired invite link");
+    const row = invite.rows[0];
+    if (row.expires_at && new Date(row.expires_at) < new Date()) {
+      throw httpError(410, "This invite link has expired. Ask your manager for a new one.");
+    }
+    res.json({
+      workplaceName: row.workplace_name,
+      workplaceId: row.workplace_id,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 authRouter.post("/join/:slug", async (req, res, next) => {
   try {
     const body = JoinRequest.parse(req.body);
-    const invite = await query<{ workplace_id: string }>(
-      `SELECT wi.workplace_id FROM workplace_invites wi
+    const invite = await query<{ workplace_id: string; expires_at: Date | null }>(
+      `SELECT wi.workplace_id, wi.expires_at FROM workplace_invites wi
        JOIN workplaces w ON w.id = wi.workplace_id
        WHERE wi.slug = $1 OR w.slug = $1 LIMIT 1`,
       [req.params.slug]
     );
     if (invite.rows.length === 0) throw httpError(404, "Invalid invite");
+    if (invite.rows[0].expires_at && new Date(invite.rows[0].expires_at) < new Date()) {
+      throw httpError(410, "This invite link has expired. Ask your manager for a new one.");
+    }
 
     const workplaceId = invite.rows[0].workplace_id;
     const existing = await query(`SELECT id FROM users WHERE email = $1`, [body.email]);

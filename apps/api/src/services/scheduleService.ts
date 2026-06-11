@@ -3,7 +3,7 @@ import type {
   ScheduleDetail,
   WorkplacePreferences,
 } from "@shiftagent/shared";
-import { UpdateShiftRequest } from "@shiftagent/shared";
+import { OverrideShiftRequestSchema, UpdateShiftRequest } from "@shiftagent/shared";
 import type { z } from "zod";
 import { query, getPool } from "../db/pool.js";
 import { httpError } from "../middleware/errorHandler.js";
@@ -14,6 +14,29 @@ import { notifyWorkplaceEmployees } from "./notificationService.js";
 import { formatDate, getPreviousWeekRange, parseTimeToHours } from "../utils/dates.js";
 import { displayNameFromProfile, normalizeRole } from "../utils/employeeMap.js";
 import { selectionsFromGrid } from "../utils/availabilityBlocks.js";
+import { generateScheduleWithLLM } from "./llmPlanner.js";
+import {
+  buildMlPredictions,
+  buildSchedulingPreferences,
+  loadEmployeeContexts,
+  loadRecentScheduleContext,
+} from "./llmInput.js";
+import {
+  extractAIMistakePatterns,
+  extractManagerPreferences,
+  processNewOverride,
+} from "./preferenceExtractor.js";
+import {
+  assertFloorCoverage,
+  deduplicateFlags,
+  runFloorEngineOnly,
+  validateAndFill,
+} from "./constraintSolver.js";
+import {
+  buildMinimalWorkersNeeded,
+  remapWorkersNeededToScheduleWeek,
+  scheduleWeekDates,
+} from "../utils/labourDemand.js";
 
 type ProfileRow = {
   user_id: string;
@@ -26,10 +49,27 @@ function shiftDedupeKey(shift: {
   shiftDate: string;
   startTime: string;
   endTime: string;
-  role: string;
 }): string {
   const norm = (t: string) => t.slice(0, 5);
-  return `${shift.employeeId}|${shift.shiftDate}|${norm(shift.startTime)}|${norm(shift.endTime)}|${shift.role}`;
+  return `${shift.employeeId}|${shift.shiftDate}|${norm(shift.startTime)}|${norm(shift.endTime)}`;
+}
+
+/** Returns true if two time ranges overlap (midnight-crossing shifts use 24:00 for end). */
+function timeRangesOverlap(
+  aStart: string,
+  aEnd: string,
+  bStart: string,
+  bEnd: string
+): boolean {
+  const toMins = (t: string) => {
+    const [h, m] = t.slice(0, 5).split(":").map(Number);
+    return h * 60 + (m || 0);
+  };
+  // Treat "00:00" end as midnight (24*60) so overnight shifts compare correctly
+  const normalize = (end: string) => (end.slice(0, 5) === "00:00" ? 24 * 60 : toMins(end));
+  const as = toMins(aStart), ae = normalize(aEnd);
+  const bs = toMins(bStart), be = normalize(bEnd);
+  return as < be && bs < ae;
 }
 
 function dedupeGeneratedShifts<T extends {
@@ -39,13 +79,28 @@ function dedupeGeneratedShifts<T extends {
   endTime: string;
   role: string;
 }>(shifts: T[]): T[] {
+  // First pass: remove exact duplicates (same employee, date, times)
   const seen = new Set<string>();
-  return shifts.filter((s) => {
+  const noDupes = shifts.filter((s) => {
     const key = shiftDedupeKey(s);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+
+  // Second pass: remove overlapping shifts for the same employee on the same day.
+  // Keep the first (longer / earlier) shift when two overlap.
+  const kept: T[] = [];
+  for (const shift of noDupes) {
+    const overlaps = kept.some(
+      (k) =>
+        k.employeeId === shift.employeeId &&
+        k.shiftDate === shift.shiftDate &&
+        timeRangesOverlap(k.startTime, k.endTime, shift.startTime, shift.endTime)
+    );
+    if (!overlaps) kept.push(shift);
+  }
+  return kept;
 }
 
 function shiftLabel(shift: {
@@ -70,7 +125,10 @@ function applyEmployeeSchedulingRules(
       e.user_id,
       {
         name: displayNameFromProfile(e.name, e.profile_data ?? {}),
-        fullDayCapable: (e.profile_data as { fullDayCapable?: boolean }).fullDayCapable === true,
+        lightShiftOnly:
+          (e.profile_data as { shiftTier?: string; experienceLevel?: string }).shiftTier ===
+            "Light shifts" ||
+          (e.profile_data as { experienceLevel?: string }).experienceLevel === "Trainee",
       },
     ])
   );
@@ -85,13 +143,21 @@ function applyEmployeeSchedulingRules(
   for (const shift of shifts) {
     const prof = byUser.get(shift.employeeId);
     const hours = parseTimeToHours(shift.startTime, shift.endTime);
-    if (prof && hours >= 10 && !prof.fullDayCapable) {
-      const adjusted = { ...shift, startTime: "10:00", endTime: "16:00" };
+    // Only cap trainee/light-shift employees — do not truncate full coverage blocks for veterans.
+    if (prof?.lightShiftOnly && hours > 8) {
+      const [sh, sm] = shift.startTime.split(":").map((n) => parseInt(n, 10));
+      const endTotal = sh * 60 + (sm || 0) + 8 * 60;
+      const endH = Math.floor(endTotal / 60) % 24;
+      const endM = endTotal % 60;
+      const adjusted = {
+        ...shift,
+        endTime: `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`,
+      };
       preferenceOverrides.push({
         employeeName: prof.name,
         suggested: shiftLabel({ ...shift, employeeName: prof.name }),
         scheduled: shiftLabel({ ...adjusted, employeeName: prof.name }),
-        reason: "Employee is not full day capable",
+        reason: "Trainee/light shift capped at 8 hours",
       });
       finalShifts.push(adjusted);
     } else {
@@ -183,6 +249,15 @@ export async function generateSchedule(
   workplaceId: string,
   weekStart: string
 ): Promise<GenerateScheduleResponse> {
+  // Prevent overwriting a published schedule with a new generation run
+  const publishedCheck = await query<{ status: string }>(
+    `SELECT status FROM schedules WHERE workplace_id = $1 AND week_start = $2`,
+    [workplaceId, weekStart]
+  );
+  if (publishedCheck.rows[0]?.status === "published") {
+    throw httpError(409, "A published schedule already exists for this week. Unpublish it before regenerating.");
+  }
+
   await assertAllEmployeesSubmitted(workplaceId, weekStart);
 
   const wp = await query<{ preferences: WorkplacePreferences }>(
@@ -192,10 +267,10 @@ export async function generateSchedule(
   if (wp.rows.length === 0) throw httpError(404, "Workplace not found");
   const preferences = wp.rows[0].preferences as WorkplacePreferences;
 
+  // Sales data is loaded by the ML engine directly from its XLS folder.
+  // We still query the DB so it can serve as a fallback inside callMlEngine,
+  // but an empty result is no longer a hard stop.
   const sales = await loadSalesForWorkplace(workplaceId);
-  if (sales.length === 0) {
-    throw httpError(400, "No sales data. Run Clearview sync or upload CSV first.");
-  }
 
   const employees = await query<{
     id: string;
@@ -239,14 +314,8 @@ export async function generateSchedule(
       dayOfWeek: a.dayOfWeek,
       startTime: a.startTime,
       endTime: a.endTime,
-      block: a.block,
+      block: a.block as "morning" | "evening" | "full" | "off" | undefined,
     }))
-  );
-
-  const llmSuggestedShifts = mlResult.shifts.map((s) => ({ ...s }));
-  const { finalShifts, preferenceOverrides } = applyEmployeeSchedulingRules(
-    mlResult.shifts,
-    employees.rows
   );
 
   const scheduleInsert = await query<{ id: string }>(
@@ -258,15 +327,211 @@ export async function generateSchedule(
     [
       workplaceId,
       weekStart,
+      JSON.stringify({ workersNeeded: mlResult.workersNeeded, flags: mlResult.flags }),
+    ]
+  );
+  const scheduleId = scheduleInsert.rows[0].id;
+
+  const constraints = (preferences.constraints ?? {}) as Record<string, unknown>;
+  const maxHoursDefault = (constraints.maxHoursPerWeek as number) ?? 45;
+
+  let workersNeededForWeek = remapWorkersNeededToScheduleWeek(mlResult.workersNeeded, weekStart);
+  if (workersNeededForWeek.byHour.length === 0 && workersNeededForWeek.byDay.length === 0) {
+    workersNeededForWeek = buildMinimalWorkersNeeded(weekStart);
+  }
+
+  const approvedTimeOff = await query<{ user_id: string; start_date: Date | string; end_date: Date | string }>(
+    `SELECT user_id, start_date, end_date FROM time_off_requests
+     WHERE workplace_id = $1 AND status = 'approved'
+       AND start_date <= ($2::date + interval '6 days')::date
+       AND end_date >= $2::date`,
+    [workplaceId, weekStart]
+  );
+
+  const solverEmployees = employees.rows.map((e) => {
+    const pd = (e.profile_data ?? {}) as { roles?: string[]; maxHours?: number };
+    const profileRoles = (pd.roles ?? []).map((r) => {
+      const upper = String(r).trim().toUpperCase();
+      if (upper === "COOK" || upper === "CASHIER" || upper === "PACKLINER") return upper;
+      if (r === "Cook") return "COOK";
+      if (r === "Cashier") return "CASHIER";
+      if (r === "Packliner") return "PACKLINER";
+      return upper;
+    });
+    return {
+      user_id: e.user_id,
+      role: e.role,
+      roles: profileRoles.length > 0 ? profileRoles : [e.role],
+      max_hours: Number(pd.maxHours ?? maxHoursDefault),
+    };
+  });
+
+  const solverAvailability = submissionAvailability.map((a) => ({
+    user_id: a.userId,
+    day_of_week: a.dayOfWeek,
+    start_time: a.startTime,
+    end_time: a.endTime,
+  }));
+
+  const solverTimeOff = approvedTimeOff.rows.map((r) => ({
+    user_id: r.user_id,
+    start_date:
+      r.start_date instanceof Date
+        ? r.start_date.toISOString().slice(0, 10)
+        : String(r.start_date).slice(0, 10),
+    end_date:
+      r.end_date instanceof Date
+        ? r.end_date.toISOString().slice(0, 10)
+        : String(r.end_date).slice(0, 10),
+  }));
+
+  const solverParams = {
+    weekStart,
+    workersNeeded: workersNeededForWeek,
+    employees: solverEmployees,
+    availability: solverAvailability,
+    approvedTimeOff: solverTimeOff,
+    preferences,
+  };
+
+  // Phase 1: floor engine runs before LLM — mandatory 1+1+1 per operating hour
+  const floorResult = runFloorEngineOnly(solverParams);
+
+  const [managerPrefs, mistakePatterns, recentSchedules, employeeContexts] = await Promise.all([
+    extractManagerPreferences(workplaceId),
+    extractAIMistakePatterns(workplaceId),
+    loadRecentScheduleContext(workplaceId, weekStart),
+    loadEmployeeContexts(workplaceId, submissionAvailability, maxHoursDefault),
+  ]);
+
+  const llmInput = {
+    workplace_id: workplaceId,
+    week_start: weekStart,
+    scheduling_preferences: buildSchedulingPreferences(preferences),
+    ml_predictions: buildMlPredictions(mlResult.workersNeeded.byHour, weekStart),
+    workers_needed: workersNeededForWeek,
+    employees: employeeContexts,
+    manager_preferences: managerPrefs,
+    ai_mistake_patterns: mistakePatterns,
+    recent_schedules: recentSchedules,
+    scheduling_prior: mlResult.schedulingPrior as Record<string, unknown> | undefined,
+    floor_assignments: floorResult.shifts.map((s) => ({
+      employee_id: s.employeeId,
+      date: s.shiftDate,
+      start_time: s.startTime,
+      end_time: s.endTime,
+      role: s.role as "COOK" | "CASHIER" | "PACKLINER",
+    })),
+    floor_gaps: floorResult.gaps.map((g) => ({
+      code: g.code,
+      date: g.date,
+      hour: g.hour,
+      role: g.role,
+      detail: g.detail,
+    })),
+  };
+
+  const llmOutput = await generateScheduleWithLLM(llmInput, scheduleId);
+
+  const floorBaselineShifts = floorResult.shifts.map((s) => ({
+    id: crypto.randomUUID(),
+    employeeId: s.employeeId,
+    day: s.day,
+    shiftDate: s.shiftDate,
+    startTime: s.startTime,
+    endTime: s.endTime,
+    role: s.role,
+    location: s.location ?? "Main",
+    isEngineSuggested: s.isEngineSuggested ?? true,
+    llmReasoning: s.llmReasoning,
+  }));
+
+  const { shifts: validatedShifts, violationsFixed, roleCoverageGaps, hardFlags } = validateAndFill({
+    llmSuggestions: llmOutput.shifts,
+    baselineShifts: [...floorBaselineShifts, ...mlResult.shifts],
+    ...solverParams,
+  });
+
+  const mappedShifts = validatedShifts.map((s) => ({
+    id: crypto.randomUUID(),
+    employeeId: s.employeeId,
+    day: s.day,
+    shiftDate: s.shiftDate,
+    startTime: s.startTime,
+    endTime: s.endTime,
+    role: s.role,
+    location: s.location,
+    isEngineSuggested: s.isEngineSuggested,
+    llmReasoning: s.llmReasoning,
+  }));
+
+  const { finalShifts: afterPrefs, preferenceOverrides } = applyEmployeeSchedulingRules(
+    mappedShifts,
+    employees.rows
+  );
+
+  // Re-enforce 1 cook + 1 cash + 1 pack per hour after preference rules (avoids undoing solver coverage).
+  const {
+    shifts: coverageFixedShifts,
+    violationsFixed: coverageFixes,
+    roleCoverageGaps: gapsAfterPrefs,
+    hardFlags: hardFlagsAfterPrefs,
+  } = validateAndFill({
+    llmSuggestions: [],
+    baselineShifts: afterPrefs.map((s) => ({
+      id: s.id,
+      employeeId: s.employeeId,
+      day: s.day,
+      shiftDate: s.shiftDate,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      role: s.role,
+      location: s.location ?? "Main",
+      isEngineSuggested: s.isEngineSuggested,
+      llmReasoning: s.llmReasoning,
+    })),
+    ...solverParams,
+  });
+
+  const finalShifts = coverageFixedShifts.map((s) => ({
+    id: crypto.randomUUID(),
+    employeeId: s.employeeId,
+    day: s.day,
+    shiftDate: s.shiftDate,
+    startTime: s.startTime,
+    endTime: s.endTime,
+    role: s.role,
+    location: s.location,
+    isEngineSuggested: s.isEngineSuggested,
+    llmReasoning: s.llmReasoning,
+  }));
+
+  const allCoverageGaps = [...new Set([...roleCoverageGaps, ...gapsAfterPrefs])];
+  const allHardFlags = deduplicateFlags([...hardFlags, ...hardFlagsAfterPrefs]);
+
+  await query(
+    `UPDATE schedules SET ml_metadata = $2, updated_at = now() WHERE id = $1`,
+    [
+      scheduleId,
       JSON.stringify({
         workersNeeded: mlResult.workersNeeded,
         flags: mlResult.flags,
-        llmSuggestedShifts,
+        schedulingPrior: mlResult.schedulingPrior,
+        llmSummary: llmOutput.summary,
+        llmWarnings: [
+          ...llmOutput.warnings,
+          ...allCoverageGaps.map((g) => `Coverage gap: ${g}`),
+          ...allHardFlags.map((f) => f.detail),
+        ],
+        roleCoverageGaps: allCoverageGaps,
+        hardFlags: allHardFlags,
+        canPublish: allHardFlags.length === 0,
+        violationsFixed: violationsFixed + coverageFixes,
         preferenceOverrides,
       }),
     ]
   );
-  const scheduleId = scheduleInsert.rows[0].id;
+
   const uniqueShifts = dedupeGeneratedShifts(finalShifts);
 
   const pool = getPool();
@@ -278,8 +543,9 @@ export async function generateSchedule(
     for (const shift of uniqueShifts) {
       const ins = await client.query<{ id: string }>(
         `INSERT INTO schedule_shifts
-         (schedule_id, employee_id, day_of_week, shift_date, start_time, end_time, role, location)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         (schedule_id, employee_id, day_of_week, shift_date, start_time, end_time, role, location,
+          is_engine_suggested, llm_reasoning)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING id`,
         [
           scheduleId,
@@ -292,6 +558,8 @@ export async function generateSchedule(
           shift.endTime,
           shift.role,
           shift.location ?? "Main",
+          (shift as { isEngineSuggested?: boolean }).isEngineSuggested ?? false,
+          (shift as { llmReasoning?: string | null }).llmReasoning ?? null,
         ]
       );
       persistedShifts.push({ ...shift, id: ins.rows[0].id });
@@ -303,6 +571,21 @@ export async function generateSchedule(
   } finally {
     client.release();
   }
+
+  assertFloorCoverage(
+    uniqueShifts.map((s) => ({
+      employeeId: s.employeeId,
+      day: s.day,
+      shiftDate: s.shiftDate,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      role: s.role,
+      location: s.location ?? "Main",
+      isEngineSuggested: s.isEngineSuggested ?? false,
+      llmReasoning: s.llmReasoning ?? null,
+    })),
+    scheduleWeekDates(weekStart)
+  );
 
   return {
     ...mlResult,
@@ -335,7 +618,8 @@ export async function getScheduleDetail(
   if (sched.rows.length === 0) throw httpError(404, "Schedule not found");
 
   const shifts = await query(
-    `SELECT id, employee_id, day_of_week, shift_date, start_time::text, end_time::text, role, location, is_locked
+    `SELECT id, employee_id, day_of_week, shift_date, start_time::text, end_time::text, role, location,
+            is_locked, is_engine_suggested, llm_reasoning
      FROM schedule_shifts WHERE schedule_id = $1`,
     [scheduleId]
   );
@@ -375,8 +659,96 @@ export async function getScheduleDetail(
       role: s.role,
       location: s.location,
       isLocked: s.is_locked ?? false,
+      isEngineSuggested: s.is_engine_suggested ?? false,
+      llmReasoning: s.llm_reasoning ?? null,
     })),
   };
+}
+
+export async function overrideShift(
+  scheduleId: string,
+  shiftId: string,
+  workplaceId: string,
+  managerId: string,
+  body: z.infer<typeof OverrideShiftRequestSchema>
+): Promise<ScheduleDetail> {
+  const sched = await query<{ id: string }>(
+    `SELECT id FROM schedules WHERE id = $1 AND workplace_id = $2 AND status = 'draft'`,
+    [scheduleId, workplaceId]
+  );
+  if (sched.rows.length === 0) throw httpError(404, "Draft schedule not found");
+
+  const existing = await query<{
+    employee_id: string;
+    shift_date: Date | string;
+    day_of_week: number;
+    start_time: string;
+    end_time: string;
+    role: string;
+    is_engine_suggested: boolean;
+  }>(
+    `SELECT employee_id, shift_date, day_of_week, start_time::text, end_time::text, role, is_engine_suggested
+     FROM schedule_shifts WHERE id = $1 AND schedule_id = $2`,
+    [shiftId, scheduleId]
+  );
+  if (existing.rows.length === 0) throw httpError(404, "Shift not found");
+
+  const row = existing.rows[0];
+  const newEmployeeId = body.employeeId ?? row.employee_id;
+  const newStart = body.startTime ?? row.start_time.slice(0, 5);
+  const newEnd = body.endTime ?? row.end_time.slice(0, 5);
+  const newRole = body.role ?? row.role;
+
+  await query(
+    `UPDATE schedule_shifts
+     SET employee_id = $1, start_time = $2, end_time = $3, role = $4, updated_at = now()
+     WHERE id = $5 AND schedule_id = $6`,
+    [newEmployeeId, newStart, newEnd, newRole, shiftId, scheduleId]
+  );
+
+  const shiftDate =
+    row.shift_date instanceof Date
+      ? row.shift_date.toISOString().slice(0, 10)
+      : String(row.shift_date).slice(0, 10);
+
+  await query(
+    `INSERT INTO schedule_overrides
+     (schedule_id, shift_id, workplace_id, manager_id, override_reason,
+      original_employee_id, new_employee_id, original_start_time, new_start_time,
+      original_end_time, new_end_time, notes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    [
+      scheduleId,
+      shiftId,
+      workplaceId,
+      managerId,
+      body.overrideReason,
+      row.employee_id,
+      newEmployeeId,
+      row.start_time.slice(0, 5),
+      newStart,
+      row.end_time.slice(0, 5),
+      newEnd,
+      body.notes ?? null,
+    ]
+  );
+
+  if (row.is_engine_suggested) {
+    await processNewOverride({
+      workplaceId,
+      overrideReason: body.overrideReason,
+      originalEmployeeId: row.employee_id,
+      newEmployeeId,
+      shiftDate,
+      dayOfWeek: row.day_of_week,
+      startTime: newStart,
+      endTime: newEnd,
+      role: newRole,
+      notes: body.notes,
+    });
+  }
+
+  return getScheduleDetail(scheduleId, workplaceId);
 }
 
 export async function getScheduleByWeek(
@@ -462,6 +834,22 @@ export async function createShift(
   const shiftDate = new Date(body.shiftDate + "T12:00:00");
   const dayOfWeek = shiftDate.getDay();
 
+  // Reject if an existing shift for this employee on this date overlaps the new one
+  const existing = await query<{ start_time: string; end_time: string }>(
+    `SELECT ss.start_time::text, ss.end_time::text
+     FROM schedule_shifts ss
+     WHERE ss.schedule_id = $1 AND ss.employee_id = $2 AND ss.shift_date = $3`,
+    [scheduleId, body.employeeId, body.shiftDate]
+  );
+  for (const ex of existing.rows) {
+    if (timeRangesOverlap(body.startTime, body.endTime, ex.start_time.slice(0, 5), ex.end_time.slice(0, 5))) {
+      throw httpError(
+        409,
+        `Employee already has an overlapping shift on ${body.shiftDate} (${ex.start_time.slice(0, 5)}–${ex.end_time.slice(0, 5)})`
+      );
+    }
+  }
+
   const ins = await query<{ id: string }>(
     `INSERT INTO schedule_shifts
      (schedule_id, employee_id, day_of_week, shift_date, start_time, end_time, role, location, is_locked)
@@ -499,6 +887,13 @@ export async function publishSchedule(
   scheduleId: string,
   workplaceId: string
 ): Promise<{ schedule: ScheduleDetail; downloadUrl: string }> {
+  const existing = await query<{ status: string }>(
+    `SELECT status FROM schedules WHERE id = $1 AND workplace_id = $2`,
+    [scheduleId, workplaceId]
+  );
+  if (existing.rows.length === 0) throw httpError(404, "Schedule not found");
+  if (existing.rows[0].status === "published") throw httpError(409, "Schedule is already published");
+
   const filePath = await writeClearviewExportFile(scheduleId, config.exportsDir);
   const filename = filePath.split("/").pop()!;
 

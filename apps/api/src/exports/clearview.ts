@@ -38,8 +38,22 @@ export async function buildClearviewCsv(scheduleId: string): Promise<string> {
     );
   }
 
+  // Deduplicate: same employee + date + start time should only appear once in the export.
+  // If duplicates slipped into the DB (e.g. different roles, same time), keep the first row.
+  const seen = new Set<string>();
+  const dedupedShifts = shifts.rows.filter((s) => {
+    const workDate =
+      s.shift_date instanceof Date
+        ? s.shift_date.toISOString().slice(0, 10)
+        : String(s.shift_date).slice(0, 10);
+    const key = `${s.employee_number}|${workDate}|${s.start_time.slice(0, 5)}|${s.end_time.slice(0, 5)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
   const lines = [CLEARVIEW_EXPORT_COLUMNS.join(",")];
-  for (const s of shifts.rows) {
+  for (const s of dedupedShifts) {
     const workDate =
       s.shift_date instanceof Date
         ? s.shift_date.toISOString().slice(0, 10)
