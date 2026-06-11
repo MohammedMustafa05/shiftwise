@@ -25,23 +25,82 @@ from labour import (
 )
 
 
-def smooth_demand_to_shift_windows(by_hour: list[dict]) -> list[dict]:
+# Minimum length for an extra-worker shift segment (matches the API solver's
+# MIN_SHIFT_HOURS).  Demand dips shorter than this keep the worker on shift.
+MIN_EXTRA_SHIFT_HOURS = 3
+
+
+def _extra_shift_segments(
+    hours: list[int], extras_by_hour: dict[int, int]
+) -> list[tuple[int, int]]:
     """
-    Propagate the peak workers_needed within each shift window to all hours in that window.
+    Decompose an hourly extras curve into shift segments (start_hour, end_hour).
 
-    Two windows per day:
-      • Open  block: operating open hour → 17:00 (morning/lunch crew)
-      • Close block: 17:00 → operating close hour (evening/close crew)
+    LIFO stack: rising demand opens new extra shifts; falling demand closes the
+    most recently opened first, so long-running extras hold their shift across
+    brief dips while short peak extras are released.  Segments shorter than
+    MIN_EXTRA_SHIFT_HOURS are extended (forward, else backward) because a real
+    employee cannot be called in for a 1-hour shift.
+    """
+    if not hours:
+        return []
+    open_hour, close_hour = hours[0], hours[-1] + 1
+    segments: list[tuple[int, int]] = []
+    stack: list[int] = []  # start hours of currently-open extra shifts
+    prev: int | None = None
 
-    Workers scheduled into a shift cannot be sent home mid-shift when sales dip.
-    The constraint solver needs a CONSISTENT cap across the whole shift window.
-    Without smoothing, a low-cap 10 AM hour blocks the solver from adding a
-    10-17 shift even when that shift is needed for the busy 1 PM rush.
+    for h in hours:
+        if prev is not None and h > prev + 1:
+            for s in reversed(stack):
+                segments.append((s, prev + 1))
+            stack = []
+        needed = max(0, extras_by_hour.get(h, 0))
+        while len(stack) < needed:
+            stack.append(h)
+        while len(stack) > needed:
+            segments.append((stack.pop(), h))
+        prev = h
 
-    Smoothing sets every hour's cap to the window PEAK so the solver can freely
-    assign open-crew and close-crew shifts without artificial early-hour blocking.
-    The prune step uses the same smoothed caps, so it does not remove workers
-    that are genuinely needed at peak hours later in the window.
+    last_end = (prev + 1) if prev is not None else close_hour
+    for s in reversed(stack):
+        segments.append((s, last_end))
+
+    fixed: list[tuple[int, int]] = []
+    for start, end in segments:
+        if end - start < MIN_EXTRA_SHIFT_HOURS:
+            end = min(start + MIN_EXTRA_SHIFT_HOURS, close_hour)
+        if end - start < MIN_EXTRA_SHIFT_HOURS:
+            start = max(open_hour, end - MIN_EXTRA_SHIFT_HOURS)
+        if end > start:
+            fixed.append((start, end))
+    fixed.sort()
+    return fixed
+
+
+def smooth_demand_to_shift_windows(
+    by_hour: list[dict],
+    labour_pct: float = LABOUR_COST_PCT,
+    avg_wage: float = AVG_WAGE,
+) -> tuple[list[dict], dict]:
+    """
+    Shift-feasible demand smoothing with weekly labour-budget enforcement.
+
+    Replaces the old window-peak propagation (which inflated EVERY hour in the
+    open/close block to the block peak and blew the labour budget) with:
+
+      1. Per day, extras above the mandatory floor are decomposed into shift
+         segments via a LIFO stack with a minimum segment length, so the caps
+         follow the true demand contour yet remain realisable by real shifts.
+      2. Weekly budget reconciliation:
+             budget_hours = weekly_sales × labour_pct / avg_wage
+         Floor hours (3 per operating hour) are mandatory and always kept.
+         Extra segments compete for the remaining budget, ranked by marginal
+         value (average hourly sales covered) — busiest hours keep their
+         staff, quiet-day bumps are dropped first.  Busy days are therefore
+         never underscheduled in favour of quiet ones.
+
+    Returns (rows, summary) where summary reports budget/projected hours and
+    the projected labour percentage.
     """
     from collections import defaultdict
 
@@ -49,31 +108,86 @@ def smooth_demand_to_shift_windows(by_hour: list[dict]) -> list[dict]:
     for row in by_hour:
         by_date[str(row["date"])].append(row)
 
+    weekly_sales = sum(float(r.get("sales") or 0) for r in by_hour)
+    budget_hours = (weekly_sales * labour_pct) / avg_wage if avg_wage > 0 else 0.0
+    floor_hours = float(len(by_hour) * MANDATORY_FLOOR)
+    extra_budget = max(0.0, budget_hours - floor_hours)
+
+    # Collect candidate extra segments across the whole week with their value.
+    candidates: list[dict] = []
+    for date, rows in sorted(by_date.items()):
+        rows.sort(key=lambda r: int(r["hour"]))
+        hours = [int(r["hour"]) for r in rows]
+        sales_at = {int(r["hour"]): float(r.get("sales") or 0) for r in rows}
+        extras_at = {
+            int(r["hour"]): max(
+                0, min(MAX_ROLE_STAFF, int(r["workers"])) - MANDATORY_FLOOR
+            )
+            for r in rows
+        }
+        for start, end in _extra_shift_segments(hours, extras_at):
+            seg_hours = end - start
+            seg_sales = sum(sales_at.get(h, 0.0) for h in range(start, end))
+            candidates.append({
+                "date": date,
+                "start": start,
+                "end": end,
+                "hours": seg_hours,
+                "value": seg_sales / seg_hours if seg_hours else 0.0,
+            })
+
+    # Greedy keep: highest marginal value first while budget remains.
+    candidates.sort(key=lambda c: (-c["value"], c["date"], c["start"]))
+    kept: list[dict] = []
+    dropped: list[dict] = []
+    used = 0.0
+    for c in candidates:
+        if used + c["hours"] <= extra_budget + 1e-9:
+            kept.append(c)
+            used += c["hours"]
+        else:
+            dropped.append(c)
+
+    kept_by_date: dict[str, list[dict]] = defaultdict(list)
+    for c in kept:
+        kept_by_date[c["date"]].append(c)
+
     result: list[dict] = []
     for date, rows in sorted(by_date.items()):
-        open_rows = [r for r in rows if int(r["hour"]) < 17]
-        close_rows = [r for r in rows if int(r["hour"]) >= 17]
-
-        open_peak = max((int(r["workers"]) for r in open_rows), default=MANDATORY_FLOOR)
-        close_peak = max((int(r["workers"]) for r in close_rows), default=MANDATORY_FLOOR)
-        open_peak = min(open_peak, MAX_ROLE_STAFF)
-        close_peak = min(close_peak, MAX_ROLE_STAFF)
-
         for r in rows:
-            target = open_peak if int(r["hour"]) < 17 else close_peak
-            extra = max(0, min(4, target - MANDATORY_FLOOR))
+            hour = int(r["hour"])
+            extra = sum(
+                1 for c in kept_by_date[date] if c["start"] <= hour < c["end"]
+            )
+            extra = min(extra, MAX_ROLE_STAFF - MANDATORY_FLOOR)
+            target = MANDATORY_FLOOR + extra
             result.append({
                 **r,
                 "workers": target,
                 "effective_headcount": target,
-                "formula_headcount": max(int(r.get("formula_headcount", target)), target),
                 "extra_workers": extra,
                 "floor_roles": {"COOK": 1, "CASHIER": 1, "PACKLINER": 1},
                 "extra_roles": extra_role_targets(extra),
                 "roles": combined_role_targets(target),
             })
 
-    return result
+    projected_hours = floor_hours + used
+    summary = {
+        "weeklySales": round(weekly_sales, 2),
+        "labourPctTarget": labour_pct,
+        "avgWage": avg_wage,
+        "budgetHours": round(budget_hours, 1),
+        "floorHours": round(floor_hours, 1),
+        "extraBudgetHours": round(extra_budget, 1),
+        "extraHoursKept": round(used, 1),
+        "extraHoursDropped": round(sum(c["hours"] for c in dropped), 1),
+        "projectedHours": round(projected_hours, 1),
+        "projectedLabourPct": round(
+            (projected_hours * avg_wage) / weekly_sales, 4
+        ) if weekly_sales > 0 else 0.0,
+        "floorExceedsBudget": floor_hours > budget_hours,
+    }
+    return result, summary
 
 
 def operating_hours_for_date(date: str) -> tuple[int, int]:

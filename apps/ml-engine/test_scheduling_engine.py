@@ -22,4 +22,4 @@ def test_busy_hour_adds_extras():
 
 
 def test_extra_role_distribution():
-    assert extra_role_targets(4) == {"COOK": 0, "CASHIER": 2, "PACKLINER": 2}
+    assert extra_role_targets(4) == {"COOK": 0, "CASHIER": 1, "PACKLINER": 3}

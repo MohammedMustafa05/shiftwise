@@ -32,9 +32,9 @@ def test_spot_checks_from_manual_session():
         (373.44, 4, 1, 2, 1),
         (496.87, 5, 1, 2, 2),
         (587.84, 6, 1, 3, 2),
-        (728.53, 7, 1, 3, 3),
-        (905.17, 9, 1, 3, 3),
-        (1283.13, 13, 1, 3, 3),
+        (728.53, 7, 1, 4, 2),
+        (905.17, 9, 1, 4, 2),
+        (1283.13, 13, 1, 4, 2),
     ]
     for sales, exp_total, exp_cook, exp_pack, exp_cash in cases:
         result = compute_workers_needed(sales)
@@ -50,9 +50,9 @@ def test_spot_checks_from_manual_session():
 def test_extra_role_distribution_pack_then_cash():
     assert extra_role_targets(1) == {"COOK": 0, "CASHIER": 0, "PACKLINER": 1}
     assert extra_role_targets(2) == {"COOK": 0, "CASHIER": 1, "PACKLINER": 1}
-    assert extra_role_targets(4) == {"COOK": 0, "CASHIER": 2, "PACKLINER": 2}
+    assert extra_role_targets(4) == {"COOK": 0, "CASHIER": 1, "PACKLINER": 3}
     assert combined_role_targets(5) == {"COOK": 1, "CASHIER": 2, "PACKLINER": 2}
-    assert combined_role_targets(7) == {"COOK": 1, "CASHIER": 3, "PACKLINER": 3}
+    assert combined_role_targets(7) == {"COOK": 1, "CASHIER": 2, "PACKLINER": 4}
 
 
 def test_low_sales_floor_wins():

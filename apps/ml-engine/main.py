@@ -235,11 +235,12 @@ def generate(
     else:
         by_day = workers_needed["byDay"]
 
-    # Smooth per-hour demand to shift-window peaks AFTER all shaping (prior included).
-    # This ensures the constraint solver sees a consistent cap across each shift window
-    # (open: open_hour→17:00, close: 17:00→close_hour) so low-demand early hours don't
-    # block valid open-crew assignments needed for later peak hours.
-    by_hour = smooth_demand_to_shift_windows(by_hour)
+    # Shift-feasible smoothing + weekly labour budget enforcement AFTER all shaping
+    # (prior included). Caps follow the true demand contour (extras decomposed into
+    # min-length shift segments) and total weekly hours are reconciled against
+    # budget = weekly_sales × labour_pct / avg_wage, dropping the lowest-value
+    # extras first so busy days keep their staffing.
+    by_hour, labour_summary = smooth_demand_to_shift_windows(by_hour, labour_pct, avg_wage)
     workers_needed["byHour"] = by_hour
 
     # Rebuild by_day from smoothed hourly data for a consistent daily summary.
@@ -287,12 +288,34 @@ def generate(
     elif not request.employees:
         flags.append({"type": "understaffed", "message": "No employees in roster"})
 
+    if labour_summary.get("floorExceedsBudget"):
+        flags.append({
+            "type": "labour_budget",
+            "message": (
+                f"Mandatory floor ({labour_summary['floorHours']}h) exceeds the "
+                f"{int(labour_pct * 100)}% labour budget "
+                f"({labour_summary['budgetHours']}h) for projected weekly sales "
+                f"${labour_summary['weeklySales']}. Floor coverage is kept; no extras scheduled."
+            ),
+        })
+    if labour_summary.get("extraHoursDropped", 0) > 0:
+        flags.append({
+            "type": "labour_budget",
+            "message": (
+                f"{labour_summary['extraHoursDropped']}h of low-value extra coverage "
+                f"dropped to stay within the {int(labour_pct * 100)}% labour budget "
+                f"({labour_summary['projectedHours']}h scheduled vs "
+                f"{labour_summary['budgetHours']}h budget)."
+            ),
+        })
+
     response: dict[str, Any] = {
         "scheduleId": str(uuid.uuid4()),
         "status": "draft",
         "workersNeeded": {"byHour": by_hour, "byDay": by_day},
         "shifts": shifts,
         "flags": flags,
+        "labourBudget": labour_summary,
     }
     if prior:
         response["schedulingPrior"] = build_style_hints(prior)
