@@ -349,7 +349,12 @@ export async function generateSchedule(
   );
 
   const solverEmployees = employees.rows.map((e) => {
-    const pd = (e.profile_data ?? {}) as { roles?: string[]; maxHours?: number };
+    const pd = (e.profile_data ?? {}) as {
+      roles?: string[];
+      maxHours?: number;
+      minHours?: number;
+      minShiftsPerWeek?: number;
+    };
     const profileRoles = (pd.roles ?? []).map((r) => {
       const upper = String(r).trim().toUpperCase();
       if (upper === "COOK" || upper === "CASHIER" || upper === "PACKLINER") return upper;
@@ -363,6 +368,8 @@ export async function generateSchedule(
       role: e.role,
       roles: profileRoles.length > 0 ? profileRoles : [e.role],
       max_hours: Number(pd.maxHours ?? maxHoursDefault),
+      min_hours: Number(pd.minHours ?? 0),
+      min_shifts: Number(pd.minShiftsPerWeek ?? 0),
     };
   });
 
