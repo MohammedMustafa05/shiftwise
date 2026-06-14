@@ -122,6 +122,45 @@ export function floorRoleTargets(): Record<StaffingRole, number> {
   return { ...FLOOR_ROLES };
 }
 
+/**
+ * Given the current concurrent counts at an hour, return true if the role
+ * split is consistent with the ROLE_DISTRIBUTION table.
+ *
+ * The coupling rule: Cook ≤ Cash ≤ Pack at all times.
+ * - Cook is always exactly 1 (never 0, never 2).
+ * - Cashier can only reach 2 once Pack is also ≥ 2 (i.e. 5+ workers).
+ * - Pack grows first as headcount rises.
+ *
+ * This is a stronger check than independent ROLE_CAPS: 1C/2Ca/1P is invalid
+ * even though 2 ≤ ROLE_CAPS.CASHIER and 1 ≤ ROLE_CAPS.PACKLINER.
+ */
+export function isValidRoleSplit(
+  cook: number,
+  cash: number,
+  pack: number
+): boolean {
+  // Cook always exactly 1 when operating
+  if (cook !== 1) return false;
+  // Cash can only exceed 1 when pack ≥ cash (pack grows first)
+  if (cash > pack) return false;
+  // Hard caps
+  if (cash > ROLE_CAPS.CASHIER) return false;
+  if (pack > ROLE_CAPS.PACKLINER) return false;
+  return true;
+}
+
+/**
+ * Given existing role counts and a new role being added, return true if the
+ * resulting split would be valid under the coupled ROLE_DISTRIBUTION table.
+ */
+export function addingRoleIsValid(
+  current: Record<StaffingRole, number>,
+  adding: StaffingRole
+): boolean {
+  const next = { ...current, [adding]: current[adding] + 1 };
+  return isValidRoleSplit(next.COOK, next.CASHIER, next.PACKLINER);
+}
+
 /** Distribute extras: Pack → Cash → Pack → Cash (cook stays at floor=1). */
 export function extraRoleTargets(extraWorkers: number): Record<StaffingRole, number> {
   const roles = rolesForExtras(extraWorkers);

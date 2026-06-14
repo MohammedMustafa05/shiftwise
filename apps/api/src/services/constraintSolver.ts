@@ -13,6 +13,7 @@ import {
   operatingHoursForDate,
   OPERATING_HOUR_START,
   OPERATING_HOUR_END,
+  addingRoleIsValid,
   type HourlyRoleTargets,
   type StaffingRole,
   type WorkersNeededMaps,
@@ -286,8 +287,13 @@ function exceedsRoleCapAtAnyHour(
   const role = canonicalRole(candidate.role);
   if (!isStaffingRole(role)) return false;
   for (const hour of hoursCoveredByShift(candidate.start_time, candidate.end_time)) {
+    if (!isOperatingHour(candidate.date, hour)) continue;
     const counts = concurrentRoleCounts(shifts, candidate.date, hour);
+    // Hard individual cap
     if (counts[role] >= ROLE_CAPS[role]) return true;
+    // Coupled constraint: Cook ≤ Cash ≤ Pack — e.g. a second Cashier is invalid
+    // until Pack is also ≥ 2 (i.e. 5+ total workers).  Prevents 1C/2Ca/1P splits.
+    if (!addingRoleIsValid(counts, role)) return true;
   }
   return false;
 }
@@ -743,6 +749,8 @@ function pruneOverScheduling(
           if (counts[role] > targets[role]) score += 10;
           if (counts[role] > ROLE_CAPS[role]) score += 20;
           if (headcount > hourCap) score += 5;
+          // Coupled violation: Cash > Pack or any other Cook≤Cash≤Pack breach — highest priority.
+          if (!addingRoleIsValid({ ...counts, [role]: counts[role] - 1 }, role)) score += 30;
         }
       }
       // Only remove if floor 1+1+1 (and H3 where applicable) still holds — never prune on headcount alone.
@@ -1282,6 +1290,20 @@ export function validateAndFill(params: {
     ) {
       violationsFixed++;
       return false;
+    }
+
+    // Coupled role constraint: Cook ≤ Cash ≤ Pack.  Applied to both LLM suggestions
+    // and engine-assigned shifts — the role distribution table is always binding.
+    const candidateRole = canonicalRole(shift.role);
+    if (isStaffingRole(candidateRole)) {
+      for (const hour of hoursCoveredByShift(shift.startTime, shift.endTime)) {
+        if (!isOperatingHour(shift.date, hour)) continue;
+        const counts = concurrentRoleCounts(accepted, shift.date, hour);
+        if (!addingRoleIsValid(counts, candidateRole)) {
+          violationsFixed++;
+          return false;
+        }
+      }
     }
 
     hoursByUser.set(shift.employeeId, total);
