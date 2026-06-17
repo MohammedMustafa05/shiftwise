@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import { config } from "./config.js";
 import { authRouter } from "./routes/auth.js";
 import { clearviewRouter } from "./routes/clearview.js";
 import { workplaceRouter } from "./routes/workplace.js";
@@ -11,11 +13,19 @@ import { dashboardRouter } from "./routes/dashboard.js";
 import { transfersRouter } from "./routes/transfers.js";
 import { openShiftsRouter } from "./routes/openShifts.js";
 import { errorHandler } from "./middleware/errorHandler.js";
+import { authRateLimiter, generalRateLimiter } from "./middleware/rateLimit.js";
 
 export function createApp() {
   const app = express();
-  app.use(cors());
+  app.use(helmet());
+  app.use(
+    cors({
+      origin: config.corsOrigins,
+      credentials: true,
+    })
+  );
   app.use(express.json());
+  app.use(generalRateLimiter);
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", service: "shiftagent-api" });
@@ -29,7 +39,7 @@ export function createApp() {
     });
   });
 
-  app.use("/api/auth", authRouter);
+  app.use("/api/auth", authRateLimiter, authRouter);
   // Plan 1 alias: POST /api/join/:slug
   app.post("/api/join/:slug", (req, res, next) => {
     const prevUrl = req.url;

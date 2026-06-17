@@ -16,6 +16,7 @@ process.env.TOKEN_ENCRYPTION_KEY =
   process.env.TOKEN_ENCRYPTION_KEY ??
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 process.env.NODE_ENV = "test";
+process.env.RATE_LIMIT_DISABLED = "1";
 
 function runMigrationsOnMemDb(): void {
   const db = newDb();
@@ -35,8 +36,25 @@ function runMigrationsOnMemDb(): void {
 
   for (const file of files) {
     let sql = fs.readFileSync(path.join(migrationsDir, file), "utf8");
+    // Strip single-line comments FIRST so semicolons inside comments don't split incorrectly.
+    sql = sql.replace(/--[^\n]*/g, "");
+    // Strip block comments.
+    sql = sql.replace(/\/\*[\s\S]*?\*\//g, "");
     sql = sql.replace(/CREATE EXTENSION IF NOT EXISTS[^;]+;/gi, "");
-    db.public.none(sql);
+    sql = sql.replace(/ALTER PUBLICATION[^;]+;/gi, "");
+    // pg-mem does not support RLS — strip these so in-memory tests still run.
+    sql = sql.replace(/ALTER TABLE\s+\S+\s+ENABLE ROW LEVEL SECURITY[^;]*;/gi, "");
+    sql = sql.replace(/ALTER TABLE\s+\S+\s+DISABLE ROW LEVEL SECURITY[^;]*;/gi, "");
+    sql = sql.replace(/DROP POLICY IF EXISTS[^;]+;/gi, "");
+    sql = sql.replace(/CREATE POLICY[\s\S]*?;/gi, "");
+    sql = sql.replace(/GRANT\s+BYPASSRLS[^;]+;/gi, "");
+    const statements = sql
+      .split(";")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const stmt of statements) {
+      db.public.none(stmt + ";");
+    }
   }
 
   const { Pool } = db.adapters.createPg();

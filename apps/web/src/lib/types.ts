@@ -167,6 +167,8 @@ export interface Shift {
   end_time: string;
   is_locked: boolean;
   shift_type: ShiftType;
+  is_engine_suggested?: boolean;
+  llm_reasoning?: string | null;
 }
 
 export interface ActivityItem {

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
+import crypto from "crypto";
 import {
   CreateWorkplaceRequest,
   UpdateSalesRequest,
@@ -21,6 +22,11 @@ import {
 } from "../utils/employeeMap.js";
 import bcrypt from "bcryptjs";
 import { logActivity } from "../services/activityService.js";
+
+/** Generates a URL-safe 24-character random token (144 bits of entropy). */
+function generateInviteToken(): string {
+  return crypto.randomBytes(18).toString("base64url");
+}
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -78,8 +84,9 @@ workplaceRouter.post(
   async (req, res, next) => {
     try {
       if (req.auth?.workplaceId !== req.params.id) throw httpError(403, "Forbidden");
-      if (!req.file) throw httpError(400, "CSV file required (field: file)");
-      const result = await importSalesCsv(req.params.id, req.file.buffer);
+      if (!req.file) throw httpError(400, "File required (field: file)");
+      const saleDate = typeof req.query.saleDate === "string" ? req.query.saleDate : undefined;
+      const result = await importSalesCsv(req.params.id, req.file.buffer, { saleDate });
       res.json(result);
     } catch (e) {
       next(e);
@@ -157,7 +164,7 @@ workplaceRouter.put("/:id/web-preferences", requireRole("EMPLOYER"), async (req,
     const body = UpdateWebPreferencesRequest.parse(req.body);
     const preferences = {
       labourCostPct: body.laborCostTarget / 100,
-      avgHourlyWage: 18.5,
+      avgHourlyWage: 20,
       constraints: {
         maxConsecutiveDays: body.maxConsecutiveDays,
         minAvailabilityHours: body.minAvailabilityHours,
@@ -265,8 +272,11 @@ workplaceRouter.post("/:id/employees", requireRole("EMPLOYER"), async (req, res,
     const name = String(req.body.name ?? "");
     const email = String(req.body.email ?? "");
     const body = profileDataFromWebInput({ ...req.body, phone: req.body.phone ?? req.body.phone });
-    const password = String(req.body.password ?? "password123");
+    const password = String(req.body.password ?? "");
     if (!name || !email) throw httpError(400, "Name and email required");
+    if (!password || password.length < 8) {
+      throw httpError(400, "Password required (minimum 8 characters)");
+    }
 
     const hash = await bcrypt.hash(password, 10);
     const user = await query<{ id: string }>(
@@ -375,6 +385,41 @@ workplaceRouter.get("/:id/employees", requireRole("EMPLOYER"), async (req, res, 
       [req.params.id]
     );
     res.json(result.rows.map((e) => mapWebEmployee(e as Parameters<typeof mapWebEmployee>[0])));
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * POST /api/workplaces/:id/invite-link
+ * Generates a fresh time-limited invite token for employees to join.
+ * Returns { inviteUrl, token, expiresAt }.
+ * The token is a random 24-character slug; each call creates a new one (old ones still work
+ * until they expire so sharing multiple links is safe).
+ */
+workplaceRouter.post("/:id/invite-link", requireRole("EMPLOYER"), async (req, res, next) => {
+  try {
+    if (req.auth?.workplaceId !== req.params.id) throw httpError(403, "Forbidden");
+
+    const ttlDays = typeof req.body?.ttlDays === "number" ? Math.min(req.body.ttlDays, 30) : 7;
+    const token = generateInviteToken();
+    const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
+
+    await query(
+      `INSERT INTO workplace_invites (workplace_id, slug, expires_at)
+       VALUES ($1, $2, $3)`,
+      [req.params.id, token, expiresAt]
+    );
+
+    const baseUrl = (req.headers["origin"] as string | undefined)
+      ?? process.env.WEB_URL
+      ?? "http://localhost:5173";
+
+    res.json({
+      token,
+      expiresAt,
+      inviteUrl: `${baseUrl}/join/${token}`,
+    });
   } catch (e) {
     next(e);
   }

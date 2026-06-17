@@ -13,6 +13,7 @@ import {
   operatingHoursForDate,
   OPERATING_HOUR_START,
   OPERATING_HOUR_END,
+  addingRoleIsValid,
   type HourlyRoleTargets,
   type StaffingRole,
   type WorkersNeededMaps,
@@ -68,6 +69,8 @@ type SolverEmployee = {
   role: string;
   roles?: string[];
   max_hours?: number;
+  min_hours?: number;
+  min_shifts?: number;
 };
 
 type SolverAvailability = {
@@ -179,6 +182,66 @@ function uniqueWorkersOnDay(shifts: ValidatedShift[], date: string): Set<string>
   return ids;
 }
 
+/** Map of employeeId → set of staffing roles they already work on `date`. */
+function rolesWorkedOnDate(
+  shifts: ValidatedShift[],
+  date: string
+): Map<string, Set<StaffingRole>> {
+  const map = new Map<string, Set<StaffingRole>>();
+  for (const sh of shifts) {
+    if (sh.shiftDate !== date) continue;
+    const r = canonicalRole(sh.role);
+    if (!isStaffingRole(r)) continue;
+    if (!map.has(sh.employeeId)) map.set(sh.employeeId, new Set());
+    map.get(sh.employeeId)!.add(r);
+  }
+  return map;
+}
+
+/**
+ * Coalesce contiguous (or overlapping) same-employee / same-day / same-role
+ * shifts into a single shift.  The solver builds coverage hour-by-hour, which
+ * can leave a person with e.g. 10:00–17:00 + 17:00–22:00 of the same role —
+ * really one 10:00–22:00 shift.  Merging removes that fragmentation without
+ * changing any hour's coverage.  Combined shifts longer than MAX_SHIFT_HOURS
+ * are left split.  Returns the number of shifts removed by merging.
+ */
+function mergeContiguousShifts(accepted: ValidatedShift[]): number {
+  const groups = new Map<string, ValidatedShift[]>();
+  for (const sh of accepted) {
+    const key = `${sh.employeeId}|${sh.shiftDate}|${canonicalRole(sh.role)}`;
+    const list = groups.get(key) ?? [];
+    list.push(sh);
+    groups.set(key, list);
+  }
+
+  const merged: ValidatedShift[] = [];
+  let removed = 0;
+  for (const group of groups.values()) {
+    group.sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
+    let cur = group[0];
+    for (let i = 1; i < group.length; i++) {
+      const next = group[i];
+      const curEnd = effectiveEndMinutes(cur.endTime, cur.startTime);
+      const nextStart = toMinutes(next.startTime);
+      const nextEnd = effectiveEndMinutes(next.endTime, next.startTime);
+      const combinedLen = Math.max(curEnd, nextEnd) - toMinutes(cur.startTime);
+      if (nextStart <= curEnd && combinedLen <= MAX_SHIFT_HOURS * 60) {
+        // Contiguous/overlapping and within max length → extend cur to the later end.
+        if (nextEnd > curEnd) cur = { ...cur, endTime: next.endTime };
+        removed++;
+      } else {
+        merged.push(cur);
+        cur = next;
+      }
+    }
+    merged.push(cur);
+  }
+
+  accepted.splice(0, accepted.length, ...merged);
+  return removed;
+}
+
 function roleTargetsForHour(
   demand: WorkersNeededMaps,
   date: string,
@@ -286,8 +349,37 @@ function exceedsRoleCapAtAnyHour(
   const role = canonicalRole(candidate.role);
   if (!isStaffingRole(role)) return false;
   for (const hour of hoursCoveredByShift(candidate.start_time, candidate.end_time)) {
+    if (!isOperatingHour(candidate.date, hour)) continue;
     const counts = concurrentRoleCounts(shifts, candidate.date, hour);
+    // Hard individual cap
     if (counts[role] >= ROLE_CAPS[role]) return true;
+    // Coupled constraint: Cook ≤ Cash ≤ Pack — e.g. a second Cashier is invalid
+    // until Pack is also ≥ 2 (i.e. 5+ total workers).  Prevents 1C/2Ca/1P splits.
+    if (!addingRoleIsValid(counts, role)) return true;
+  }
+  return false;
+}
+
+/**
+ * Demand-phase only: a shift may not push a role above its per-hour TARGET from
+ * the workers-needed table (e.g. 4 workers ⇒ 1C/2P/1Ca — a second cashier is
+ * rejected even though the hard ROLE_CAP for cashiers is 2).  Operating hours
+ * where the role is at/over target at ANY covered hour reject the shift; the
+ * demandWindow clipping keeps shifts inside the under-target span so legit
+ * shifts are not blocked by slow shoulder hours.
+ */
+function exceedsRoleTargetAtAnyHour(
+  shifts: ValidatedShift[],
+  candidate: { date: string; start_time: string; end_time: string; role: string },
+  demand: WorkersNeededMaps
+): boolean {
+  const role = canonicalRole(candidate.role);
+  if (!isStaffingRole(role)) return false;
+  for (const hour of hoursCoveredByShift(candidate.start_time, candidate.end_time)) {
+    if (!isOperatingHour(candidate.date, hour)) continue;
+    const counts = concurrentRoleCounts(shifts, candidate.date, hour);
+    const target = requiredRoleCountAtHour(demand, candidate.date, hour, role, "demand");
+    if (counts[role] >= target) return true;
   }
   return false;
 }
@@ -503,6 +595,19 @@ function tryExtendShiftForHour(
       continue;
     }
 
+    // Demand extensions: the newly added hours must not push the role above its
+    // per-hour target from the workers-needed table.
+    if (
+      !coreFillOnly &&
+      exceedsRoleTargetAtAnyHour(
+        accepted.filter((x) => x !== sh),
+        { date, start_time: sh.endTime, end_time: newEnd, role },
+        demand
+      )
+    ) {
+      continue;
+    }
+
     sh.endTime = newEnd;
     return true;
   }
@@ -556,6 +661,20 @@ function tryAssignCoverageShift(
         },
         demand,
         { coreFillOnly }
+      )
+    ) {
+      continue;
+    }
+
+    // Demand extras must respect the per-hour role split from the workers-needed
+    // table (e.g. 4 workers ⇒ 1C/2P/1Ca) at every hour they cover — not just the
+    // hard ROLE_CAPS maximums (1C/2Ca/4P).
+    if (
+      !coreFillOnly &&
+      exceedsRoleTargetAtAnyHour(
+        accepted,
+        { date, start_time: win.start, end_time: win.end, role },
+        demand
       )
     ) {
       continue;
@@ -692,6 +811,8 @@ function pruneOverScheduling(
           if (counts[role] > targets[role]) score += 10;
           if (counts[role] > ROLE_CAPS[role]) score += 20;
           if (headcount > hourCap) score += 5;
+          // Coupled violation: Cash > Pack or any other Cook≤Cash≤Pack breach — highest priority.
+          if (!addingRoleIsValid({ ...counts, [role]: counts[role] - 1 }, role)) score += 30;
         }
       }
       // Only remove if floor 1+1+1 (and H3 where applicable) still holds — never prune on headcount alone.
@@ -763,22 +884,42 @@ function fillRoleGaps(params: {
           guard++;
           const rejections: string[] = [];
           const workingNow = concurrentWorkersAtHour(accepted, date, hour);
+          // Roles each employee already works on THIS day — used to keep people in
+          // one role across the day (role-stickiness) instead of switching mid-shift.
+          const rolesWorkedToday = rolesWorkedOnDate(accepted, date);
+          const switchesRole = (uid: string): boolean => {
+            const worked = rolesWorkedToday.get(uid);
+            if (!worked || worked.size === 0) return false; // not working today → no switch
+            return !(worked.size === 1 && worked.has(role)); // works a different role today
+          };
+          const belowMinShifts = (e: SolverEmployee): boolean =>
+            (shiftsByUser.get(e.user_id) ?? 0) < (e.min_shifts ?? 0);
           const candidates = employees
             .filter((e) => roleMatches(e, role))
             .sort((a, b) => {
-              // 1. Employees already working this hour first (extend coverage gap cheaply)
+              // 1. Role-stickiness: avoid pulling in someone already doing a DIFFERENT
+              //    role today (prevents Cook→Packliner style mid-day switches).
+              const aSwitch = switchesRole(a.user_id) ? 1 : 0;
+              const bSwitch = switchesRole(b.user_id) ? 1 : 0;
+              if (aSwitch !== bSwitch) return aSwitch - bSwitch;
+              // 2. Fairness floor: employees below their minimum weekly shifts first.
+              const aBelow = belowMinShifts(a) ? 0 : 1;
+              const bBelow = belowMinShifts(b) ? 0 : 1;
+              if (aBelow !== bBelow) return aBelow - bBelow;
+              // 3. Prefer FRESH employees (not already on the clock this hour) so a new
+              //    shift can be opened without overlapping an existing one.
               const aWorking = workingNow.has(a.user_id) ? 1 : 0;
               const bWorking = workingNow.has(b.user_id) ? 1 : 0;
               if (aWorking !== bWorking) return aWorking - bWorking;
-              // 2. Prefer employees whose PRIMARY role matches (avoid multi-role mixing)
+              // 4. Prefer employees whose PRIMARY role matches (avoid multi-role mixing)
               const aPrimary = canonicalRole(a.role) === canonicalRole(role) ? 0 : 1;
               const bPrimary = canonicalRole(b.role) === canonicalRole(role) ? 0 : 1;
               if (aPrimary !== bPrimary) return aPrimary - bPrimary;
-              // 3. Fairness: prefer employees with fewer shifts this week (spread work evenly)
+              // 5. Fairness: prefer employees with fewer shifts this week (spread work evenly)
               const aShifts = shiftsByUser.get(a.user_id) ?? 0;
               const bShifts = shiftsByUser.get(b.user_id) ?? 0;
               if (aShifts !== bShifts) return aShifts - bShifts;
-              // 4. Hours worked this week as tiebreaker
+              // 6. Hours worked this week as tiebreaker
               return (hoursByUser.get(a.user_id) ?? 0) - (hoursByUser.get(b.user_id) ?? 0);
             });
 
@@ -1233,6 +1374,20 @@ export function validateAndFill(params: {
       return false;
     }
 
+    // Coupled role constraint: Cook ≤ Cash ≤ Pack.  Applied to both LLM suggestions
+    // and engine-assigned shifts — the role distribution table is always binding.
+    const candidateRole = canonicalRole(shift.role);
+    if (isStaffingRole(candidateRole)) {
+      for (const hour of hoursCoveredByShift(shift.startTime, shift.endTime)) {
+        if (!isOperatingHour(shift.date, hour)) continue;
+        const counts = concurrentRoleCounts(accepted, shift.date, hour);
+        if (!addingRoleIsValid(counts, candidateRole)) {
+          violationsFixed++;
+          return false;
+        }
+      }
+    }
+
     hoursByUser.set(shift.employeeId, total);
     acceptedSlotKeys.add(slotKey);
     accepted.push({
@@ -1313,6 +1468,10 @@ export function validateAndFill(params: {
 
   // ── Phase 5: Prune over-staffing (never below floor role composition) ──
   violationsFixed += pruneOverScheduling(accepted, demand, empById);
+
+  // ── Phase 6: Merge contiguous same-employee/same-role shifts into one ──
+  // (e.g. 10:00–17:00 + 17:00–22:00 Packliner → 10:00–22:00). Coverage-neutral.
+  mergeContiguousShifts(accepted);
 
   // Re-audit H1 after prune — prune may have created new gaps
   hardFlags.push(...auditFloorHardFlags(accepted, demand.scheduleDates));

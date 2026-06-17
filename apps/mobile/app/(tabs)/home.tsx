@@ -39,7 +39,10 @@ export default function HomeScreen() {
   const [workplaceId, setWorkplaceId] = useState<string | undefined>();
   const [localActionsTaken, setLocalActionsTaken] = useState<Record<string, string>>({});
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const loadHome = useCallback(async () => {
+    setLoadError(null);
     try {
       const [me, s, announcements] = await Promise.all([
         api.getMe(),
@@ -105,8 +108,8 @@ export default function HomeScreen() {
           actionTaken: a.actionTaken,
         })),
       );
-    } catch {
-      /* use mock data */
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Could not load home data. Check your connection and try again.");
     }
   }, []);
 
@@ -172,6 +175,15 @@ export default function HomeScreen() {
       </View>
 
       <Text style={styles.greeting}>Good morning, {profile.firstName}</Text>
+
+      {loadError ? (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>{loadError}</Text>
+          <Pressable onPress={() => void loadHome()} style={styles.retryBtn}>
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Next shift</Text>
@@ -329,6 +341,31 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.textPrimary,
     marginBottom: 24,
+  },
+  errorBanner: {
+    backgroundColor: "rgba(248,113,113,0.15)",
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(248,113,113,0.3)",
+  },
+  errorText: {
+    color: "#F87171",
+    fontSize: 14,
+    marginBottom: 10,
+  },
+  retryBtn: {
+    alignSelf: "flex-start",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: Colors.primary,
+  },
+  retryText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "600",
   },
   section: {
     marginBottom: 24,

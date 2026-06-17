@@ -9,6 +9,65 @@ services:
       - "5432:5432"
     volumes:
       - shiftagent_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  ml-engine:
+    build:
+      context: .
+      dockerfile: apps/ml-engine/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      ML_ENGINE_API_KEY: ${ML_ENGINE_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/shiftagent
+      REDIS_URL: redis://redis:6379
+      ML_ENGINE_URL: http://ml-engine:8000
+      ML_ENGINE_API_KEY: ${ML_ENGINE_API_KEY:-}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
+      CRON_SECRET: ${CRON_SECRET:-dev-cron-secret}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      CORS_ORIGINS: http://localhost:5173
+      CLEARVIEW_MODE: mock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ml-engine:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   shiftagent_pg:

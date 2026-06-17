@@ -99,7 +99,13 @@ export default function Sales() {
     setUploading(true);
     setUploadMsg(null);
     try {
-      const result = await api.uploadSalesCsv(workplaceId, file);
+      const activeDate = salesData[activeDayIdx]?.date ?? weekStr;
+      const isClearviewXls = file.name.toLowerCase().endsWith('.xls');
+      const result = await api.uploadSalesCsv(
+        workplaceId,
+        file,
+        isClearviewXls ? activeDate : undefined
+      );
       setUploadMsg(
         `Imported ${result.rowsAccepted} rows` +
           (result.format ? ` (${result.format})` : '') +
@@ -110,7 +116,7 @@ export default function Sales() {
       if (data.length) setSalesData(data);
     } catch {
       setUploadMsg(
-        'CSV upload failed — use date/hour/sales_amount or the drop chart format (Date, Time, Sales ($))'
+        'Upload failed — use CSV (date/hour/sales), drop chart CSV, or Clearview .xls (requires active day date)'
       );
     } finally {
       setUploading(false);
