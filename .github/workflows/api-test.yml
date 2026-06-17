@@ -60,6 +60,11 @@ jobs:
       - run: docker compose build api ml-engine
       - run: docker compose up -d postgres redis
       - run: sleep 5
+      - name: Run migrations
+        run: |
+          for f in supabase/migrations/*.sql; do
+            docker compose exec -T postgres psql -U postgres -d shiftagent -f /dev/stdin < "$f"
+          done
       - run: docker compose up -d ml-engine api
       - run: |
           for i in $(seq 1 30); do
