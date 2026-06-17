@@ -87,7 +87,6 @@ function inferBlockFromHours(day: DayKey, hours: string[]): AvailabilityBlockSum
 }
 
 function blockForDay(req: AvailabilityRequest, day: DayKey): AvailabilityBlockSummary | null {
-  const full = DAY_FULL[day];
   const fromBlocks = req.availability_blocks?.find((b) => {
     const key = dayKeyFromLabel(b.day);
     return key === day;

@@ -210,7 +210,7 @@ type ShiftFormPayload = {
   role: Role;
 };
 
-const ROLE_OPTIONS: Role[] = ['Cook', 'Cashier', 'Packer'];
+const ROLE_OPTIONS: Role[] = ['Cook', 'Cashier', 'Packliner'];
 
 function shiftOutsideAvailability(
   availGrid: Record<string, string[]> | null,
@@ -512,13 +512,13 @@ function AISuggestionsSection({
           {suggestions.map((s) => {
             const suggestedParsed = parseOverrideLine(s.suggested);
             const schedParsed = parseOverrideLine(s.scheduled);
-            const aiStart = suggestedParsed.start ?? '10:00';
-            const aiEnd = suggestedParsed.end ?? '16:00';
-            const schedStart = schedParsed.start ?? aiStart;
-            const schedEnd = schedParsed.end ?? aiEnd;
+            const aiStart = suggestedParsed?.start ?? '10:00';
+            const aiEnd = suggestedParsed?.end ?? '16:00';
+            const schedStart = schedParsed?.start ?? aiStart;
+            const schedEnd = schedParsed?.end ?? aiEnd;
             const aiHours = shiftDurationFromStrings(aiStart, aiEnd);
             const schedHours = shiftDurationFromStrings(schedStart, schedEnd);
-            const dateLabel = suggestedParsed.date
+            const dateLabel = suggestedParsed?.date
               ? format(parseISOSafe(suggestedParsed.date) ?? new Date(), 'EEEE MMM d')
               : '';
 
@@ -1034,9 +1034,9 @@ export default function Schedule() {
 
     const scheduled = parseOverrideLine(suggestion.scheduled);
     const suggested = parseOverrideLine(suggestion.suggested);
-    const shift = findShiftForOverride(shifts, scheduled);
+    const shift = scheduled ? findShiftForOverride(shifts, scheduled) : undefined;
 
-    if (shift && suggested.start && suggested.end && isApiConfigured) {
+    if (shift && suggested?.start && suggested?.end && isApiConfigured) {
       const updates = { start_time: `${suggested.start}:00`, end_time: `${suggested.end}:00` };
       setShifts((prev) =>
         prev.map((s) => (s.id === shift.id ? { ...s, ...updates } : s)),

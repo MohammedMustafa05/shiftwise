@@ -24,7 +24,8 @@ export function usePendingApprovals() {
   }, [refresh]);
 
   useEffect(() => {
-    return approvalChangeSignal.subscribe(() => void refresh());
+    const unsub = approvalChangeSignal.subscribe(() => void refresh());
+    return () => { unsub; };
   }, [refresh]);
 
   return { count, refresh };

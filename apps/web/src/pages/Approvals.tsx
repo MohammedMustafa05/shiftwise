@@ -41,7 +41,7 @@ function AvailabilityBlocksGrid({
   isFirstSubmission?: boolean;
 }) {
   const blocksByDay = useMemo(() => {
-    const map = new Map<DayKey, AvailabilityRequest['availability_blocks'][number]>();
+    const map = new Map<DayKey, NonNullable<AvailabilityRequest['availability_blocks']>[number]>();
     for (const b of blocks ?? []) {
       const key = dayKeyFromBlockDay(b.day);
       if (key) map.set(key, b);
@@ -339,9 +339,9 @@ export default function Approvals() {
     if (!isApiConfigured) return;
     try {
       if (type === 'availability') {
-        await api.updateAvailabilityStatus(id, prevStatus);
+        await api.updateAvailabilityStatus(id, prevStatus as 'approved' | 'rejected');
       } else {
-        await api.updateTimeOffStatus(id, prevStatus);
+        await api.updateTimeOffStatus(id, prevStatus as 'approved' | 'rejected');
       }
     } catch {
       setErrorToast('Failed to update — please try again');

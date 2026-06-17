@@ -61,7 +61,7 @@ export function useEmployees() {
 
     return () => {
       if (timer) clearTimeout(timer);
-      void supabase.removeChannel(channel);
+      void supabase?.removeChannel(channel);
     };
   }, [workplaceId, refresh]);
 

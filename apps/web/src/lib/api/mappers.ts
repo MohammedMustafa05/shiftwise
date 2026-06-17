@@ -102,7 +102,6 @@ export function mapEmployeeToApi(emp: Employee) {
     maxHours: emp.max_hours,
     fullDayCapable: emp.full_day_capable ?? false,
     employeeType: emp.employee_type,
-    fullDayCapable: emp.full_day_capable ?? false,
     pairingAlwaysWith: emp.pairing_always_with,
     pairingNeverWith: emp.pairing_never_with,
   };

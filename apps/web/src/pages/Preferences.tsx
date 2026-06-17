@@ -493,11 +493,8 @@ export default function PreferencesPage() {
   const [saved, setSaved] = useState(false);
 
   const [dayHours, setDayHours] = useState<Record<DayName, DayHours>>(initDayHours);
-  const [bulkOpen, setBulkOpen] = useState(mockPreferences.operating_hours.open);
-  const [bulkClose, setBulkClose] = useState(mockPreferences.operating_hours.close);
   const [hoursExpanded, setHoursExpanded] = useState(true);
   const [hoursLocked, setHoursLocked] = useState(false);
-  const [bulkExpanded, setBulkExpanded] = useState(false);
 
   function updateLabor<K extends keyof Preferences>(key: K, val: Preferences[K]) {
     setPrefs(p => ({ ...p, [key]: val }));
@@ -505,18 +502,6 @@ export default function PreferencesPage() {
 
   function setDayField(day: DayName, field: keyof DayHours, val: string | boolean) {
     setDayHours(prev => ({ ...prev, [day]: { ...prev[day], [field]: val } }));
-  }
-
-  function applyToAll() {
-    setDayHours(prev => {
-      const next = { ...prev };
-      for (const day of DAY_NAMES) {
-        if (!prev[day].closed) {
-          next[day] = { ...prev[day], open: bulkOpen, close: bulkClose };
-        }
-      }
-      return next;
-    });
   }
 
   async function handleSave() {
