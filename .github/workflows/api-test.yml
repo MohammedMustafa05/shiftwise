@@ -46,6 +46,10 @@ jobs:
           USE_REAL_POSTGRES: "1"
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shiftagent
           REDIS_URL: redis://localhost:6379
+          # Generate schedules synchronously (production default) so the
+          # integration tests receive the created schedule + shifts in the
+          # response instead of an async 202 job handle.
+          LLM_SYNC_MODE: "true"
           JWT_SECRET: test-secret-with-at-least-32-characters-long
           CRON_SECRET: dev-cron-secret-with-32-chars-min
           TOKEN_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
