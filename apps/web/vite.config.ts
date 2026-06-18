@@ -18,6 +18,9 @@ export default defineConfig({
     alias: {
       react: reactRoot,
       'react-dom': reactDomRoot,
+      // Resolve the workspace shared package from TS source so the web build
+      // does not require a prebuilt dist.
+      '@shiftagent/shared': path.join(repoRoot, 'packages/shared/src/index.ts'),
     },
   },
   optimizeDeps: {

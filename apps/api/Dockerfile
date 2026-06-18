@@ -11,7 +11,9 @@ COPY packages/shared ./packages/shared
 COPY apps/api ./apps/api
 COPY supabase/migrations ./supabase/migrations
 
-RUN npm run build -w @shiftagent/shared 2>/dev/null || true
+# Build the shared package first — the compiled API imports runtime values
+# (zod schemas) from it, so dist/ must exist for `node dist/index.js`.
+RUN npm run build -w @shiftagent/shared
 RUN npm run build -w @shiftagent/api
 
 FROM node:20-alpine AS runner

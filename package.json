@@ -4,8 +4,8 @@
   "private": true,
   "description": "AI-powered restaurant scheduling platform",
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
     "dev": "npm run dev --workspaces --if-present",

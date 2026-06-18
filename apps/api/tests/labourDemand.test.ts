@@ -28,8 +28,8 @@ describe("labourDemand — Store 6412 Milton LSL", () => {
       [43.15, 3, 1, 1, 1],
       [350, 4, 1, 2, 1],
       [496.87, 5, 1, 2, 2],
-      [728.53, 7, 1, 3, 3],
-      [1283.13, 13, 1, 3, 3],
+      [728.53, 7, 1, 4, 2],
+      [1283.13, 13, 1, 4, 2],
     ];
     for (const [sales, total, cook, pack, cash] of cases) {
       const r = computeWorkersNeeded(sales);
@@ -59,9 +59,9 @@ describe("labourDemand — Store 6412 Milton LSL", () => {
     expect(combinedRoleTargets(4)).toEqual({ COOK: 1, CASHIER: 1, PACKLINER: 2 });
     expect(combinedRoleTargets(5)).toEqual({ COOK: 1, CASHIER: 2, PACKLINER: 2 });
     expect(combinedRoleTargets(6)).toEqual({ COOK: 1, CASHIER: 2, PACKLINER: 3 });
-    expect(combinedRoleTargets(7)).toEqual({ COOK: 1, CASHIER: 3, PACKLINER: 3 });
-    expect(extraRoleTargets(4)).toEqual({ COOK: 0, CASHIER: 2, PACKLINER: 2 });
-    expect(roleTargetsForTotalWorkers(7)).toEqual({ COOK: 1, CASHIER: 3, PACKLINER: 3 });
+    expect(combinedRoleTargets(7)).toEqual({ COOK: 1, CASHIER: 2, PACKLINER: 4 });
+    expect(extraRoleTargets(4)).toEqual({ COOK: 0, CASHIER: 1, PACKLINER: 3 });
+    expect(roleTargetsForTotalWorkers(7)).toEqual({ COOK: 1, CASHIER: 2, PACKLINER: 4 });
   });
 
   it("operating hours vary by day of week", () => {

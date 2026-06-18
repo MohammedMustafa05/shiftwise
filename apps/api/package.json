@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prebuild": "tsc -p ../../packages/shared/tsconfig.json",
+    "predev": "tsc -p ../../packages/shared/tsconfig.json",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",

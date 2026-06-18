@@ -42,6 +42,9 @@ function runMigrationsOnMemDb(): void {
     sql = sql.replace(/\/\*[\s\S]*?\*\//g, "");
     sql = sql.replace(/CREATE EXTENSION IF NOT EXISTS[^;]+;/gi, "");
     sql = sql.replace(/ALTER PUBLICATION[^;]+;/gi, "");
+    // pg-mem cannot parse plpgsql DO $$ ... $$ blocks. These are only used for
+    // conditional RLS / realtime setup the in-memory tests don't need, so drop them.
+    sql = sql.replace(/DO\s+\$\$[\s\S]*?\$\$\s*;/gi, "");
     // pg-mem does not support RLS — strip these so in-memory tests still run.
     sql = sql.replace(/ALTER TABLE\s+\S+\s+ENABLE ROW LEVEL SECURITY[^;]*;/gi, "");
     sql = sql.replace(/ALTER TABLE\s+\S+\s+DISABLE ROW LEVEL SECURITY[^;]*;/gi, "");
