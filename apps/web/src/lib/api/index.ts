@@ -59,6 +59,33 @@ export const api = {
     });
   },
 
+  async signup(body: {
+    email: string;
+    password: string;
+    name: string;
+    workplaceName: string;
+    timezone?: string;
+  }): Promise<AuthResponse> {
+    return apiFetch<AuthResponse>('/api/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  async joinInfo(slug: string): Promise<{ workplaceName: string; workplaceId: string }> {
+    return apiFetch<{ workplaceName: string; workplaceId: string }>(`/api/auth/join/${slug}/info`);
+  },
+
+  async join(
+    slug: string,
+    body: { email: string; password: string; name: string }
+  ): Promise<AuthResponse> {
+    return apiFetch<AuthResponse>(`/api/auth/join/${slug}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
   async getEmployees(workplaceId: string): Promise<Employee[]> {
     const rows = await apiFetch<Array<Parameters<typeof mapEmployeeFromApi>[0]>>(
       `/api/workplace/${workplaceId}/employees`
