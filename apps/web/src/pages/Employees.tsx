@@ -1,11 +1,136 @@
-import { useState, useMemo } from 'react';
-import { Users, Search, Plus, X, Phone, Mail, ChevronDown, Save, Trash2 } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Users, Search, Plus, X, Phone, Mail, ChevronDown, Save, Trash2, ChevronLeft, ChevronRight, CalendarClock } from 'lucide-react';
 import type { Employee, Role, ExperienceLevel, ShiftTier, EmployeeType } from '../lib/types';
 import {
   getRoleBadgeClass, getExperienceBadgeClass, getInitials, getAvatarColor, generateId,
 } from '../lib/utils';
 import { useEmployees } from '../hooks/useEmployerApi';
-import { api, isApiConfigured } from '../lib/api';
+import { api, isApiConfigured, weekStartMonday } from '../lib/api';
+
+type AvailBlock = 'off' | 'morning' | 'evening' | 'full';
+const AVAIL_DAYS: { key: string; label: string }[] = [
+  { key: 'monday', label: 'Mon' }, { key: 'tuesday', label: 'Tue' }, { key: 'wednesday', label: 'Wed' },
+  { key: 'thursday', label: 'Thu' }, { key: 'friday', label: 'Fri' }, { key: 'saturday', label: 'Sat' },
+  { key: 'sunday', label: 'Sun' },
+];
+const AVAIL_OPTIONS: { value: AvailBlock; label: string }[] = [
+  { value: 'off', label: 'Off' }, { value: 'morning', label: 'AM' },
+  { value: 'evening', label: 'PM' }, { value: 'full', label: 'Full' },
+];
+
+function addDaysIso(iso: string, days: number): string {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  return weekStartMonday(d);
+}
+
+function AvailabilitySection({ workplaceId, profileId }: { workplaceId: string; profileId: string }) {
+  const [weekStart, setWeekStart] = useState(() => weekStartMonday(new Date()));
+  const [days, setDays] = useState<Record<string, AvailBlock>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setMsg(null);
+    api.getEmployeeAvailability(workplaceId, profileId, weekStart)
+      .then((r) => {
+        if (!active) return;
+        const next: Record<string, AvailBlock> = {};
+        for (const d of AVAIL_DAYS) next[d.key] = (r.days[d.key] as AvailBlock) ?? 'off';
+        setDays(next);
+      })
+      .catch(() => { if (active) setDays(Object.fromEntries(AVAIL_DAYS.map(d => [d.key, 'off'])) as Record<string, AvailBlock>); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [workplaceId, profileId, weekStart]);
+
+  async function save() {
+    setSaving(true);
+    setMsg(null);
+    try {
+      const r = await api.setEmployeeAvailability(workplaceId, profileId, weekStart, days);
+      setMsg({ kind: 'ok', text: `Saved — ${r.totalHours}h available this week` });
+    } catch (e) {
+      setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'Could not save availability' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const weekLabel = new Date(weekStart + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: '#71717A', letterSpacing: '0.1em' }}>
+          Availability
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button type="button" onClick={() => setWeekStart(w => addDaysIso(w, -7))}
+            className="p-1 rounded" style={{ color: '#A1A1AA', backgroundColor: '#18181B', border: '1px solid #3F3F46' }}>
+            <ChevronLeft size={13} />
+          </button>
+          <span className="text-xs flex items-center gap-1" style={{ color: '#A1A1AA' }}>
+            <CalendarClock size={12} /> Week of {weekLabel}
+          </span>
+          <button type="button" onClick={() => setWeekStart(w => addDaysIso(w, 7))}
+            className="p-1 rounded" style={{ color: '#A1A1AA', backgroundColor: '#18181B', border: '1px solid #3F3F46' }}>
+            <ChevronRight size={13} />
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-xs py-4 text-center" style={{ color: '#71717A' }}>Loading…</div>
+      ) : (
+        <div className="space-y-1.5">
+          {AVAIL_DAYS.map(({ key, label }) => (
+            <div key={key} className="flex items-center gap-2">
+              <span className="text-xs w-9 shrink-0" style={{ color: '#A1A1AA' }}>{label}</span>
+              <div className="flex gap-1 flex-1">
+                {AVAIL_OPTIONS.map(opt => {
+                  const active = (days[key] ?? 'off') === opt.value;
+                  return (
+                    <button key={opt.value} type="button"
+                      onClick={() => setDays(d => ({ ...d, [key]: opt.value }))}
+                      className="flex-1 py-1.5 rounded text-xs font-medium transition-all"
+                      style={active
+                        ? { backgroundColor: opt.value === 'off' ? '#3F3F46' : '#818CF8', color: '#FFFFFF' }
+                        : { backgroundColor: '#18181B', border: '1px solid #3F3F46', color: '#71717A' }}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {msg && (
+        <div className="text-xs mt-3 rounded px-3 py-2"
+          style={msg.kind === 'ok'
+            ? { backgroundColor: 'rgba(74,222,128,0.1)', color: '#4ADE80' }
+            : { backgroundColor: 'rgba(248,113,113,0.1)', color: '#F87171' }}>
+          {msg.text}
+        </div>
+      )}
+
+      <button type="button" onClick={save} disabled={saving || loading}
+        className="w-full mt-3 py-2 rounded-lg text-sm font-medium transition-all"
+        style={{ backgroundColor: '#818CF8', color: '#FFFFFF', opacity: saving || loading ? 0.6 : 1 }}>
+        {saving ? 'Saving…' : 'Save Availability'}
+      </button>
+      <p className="text-xs mt-2" style={{ color: '#71717A' }}>
+        Set this for the same week you'll generate the schedule. AM/PM/Full set standard shift windows.
+      </p>
+    </div>
+  );
+}
 
 const ROLES: Role[] = ['Cashier', 'Cook', 'Packliner'];
 const EXPERIENCE_LEVELS: ExperienceLevel[] = ['Veteran', 'Intermediate', 'Trainee'];
@@ -127,12 +252,13 @@ function DrawerNumberField({
 }
 
 function EmployeeDrawer({
-  employee, onSave, onRemove, onClose,
+  employee, onSave, onRemove, onClose, workplaceId,
 }: {
   employee: Partial<Employee>;
   onSave: (emp: Employee, password?: string) => void;
   onRemove?: (emp: Employee) => void;
   onClose: () => void;
+  workplaceId: string | null;
 }) {
   const isNew = !employee.id;
   const [form, setForm] = useState({ ...DEFAULT_EMPLOYEE, ...employee });
@@ -343,6 +469,13 @@ function EmployeeDrawer({
               </button>
             </div>
           </div>
+
+          {!isNew && employee.id && workplaceId && isApiConfigured && (
+            <>
+              <div style={{ height: 1, backgroundColor: '#3F3F46' }} />
+              <AvailabilitySection workplaceId={workplaceId} profileId={employee.id} />
+            </>
+          )}
         </div>
 
         {/* Footer */}
@@ -715,6 +848,7 @@ export default function Employees() {
           onSave={handleSave}
           onRemove={handleRemove}
           onClose={() => setDrawer(null)}
+          workplaceId={workplaceId}
         />
       )}
 

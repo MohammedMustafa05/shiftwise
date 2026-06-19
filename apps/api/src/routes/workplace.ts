@@ -22,6 +22,14 @@ import {
 } from "../utils/employeeMap.js";
 import bcrypt from "bcryptjs";
 import { logActivity } from "../services/activityService.js";
+import {
+  selectionFromBlockInput,
+  gridFromSelections,
+  selectionsFromGrid,
+  totalHoursFromSelections,
+  dayNameFromDow,
+  type BlockKey,
+} from "../utils/availabilityBlocks.js";
 
 /** Generates a URL-safe 24-character random token (144 bits of entropy). */
 function generateInviteToken(): string {
@@ -389,6 +397,109 @@ workplaceRouter.get("/:id/employees", requireRole("EMPLOYER"), async (req, res, 
     next(e);
   }
 });
+
+/**
+ * GET /api/workplace/:id/employees/:profileId/availability?weekStart=YYYY-MM-DD
+ * Manager-side view of an employee's submitted availability for a week.
+ * Returns a day->block map ("morning" | "evening" | "full" | "off").
+ */
+workplaceRouter.get(
+  "/:id/employees/:profileId/availability",
+  requireRole("EMPLOYER"),
+  async (req, res, next) => {
+    try {
+      if (req.auth?.workplaceId !== req.params.id) throw httpError(403, "Forbidden");
+      const weekStart = String(req.query.weekStart ?? "").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) throw httpError(400, "weekStart (YYYY-MM-DD) required");
+
+      const profile = await query<{ user_id: string }>(
+        `SELECT user_id FROM employee_profiles WHERE id = $1 AND workplace_id = $2`,
+        [req.params.profileId, req.params.id]
+      );
+      if (profile.rows.length === 0) throw httpError(404, "Employee not found");
+
+      const sub = await query<{ availability_grid: Record<string, unknown>; status: string }>(
+        `SELECT availability_grid, status FROM availability_submissions
+         WHERE user_id = $1 AND week_start = $2`,
+        [profile.rows[0].user_id, weekStart]
+      );
+
+      const days: Record<string, BlockKey> = {};
+      if (sub.rows[0]?.availability_grid) {
+        for (const s of selectionsFromGrid(sub.rows[0].availability_grid)) {
+          days[dayNameFromDow(s.dayOfWeek)] = s.block;
+        }
+      }
+      res.json({ weekStart, status: sub.rows[0]?.status ?? null, days });
+    } catch (e) {
+      next(e);
+    }
+  }
+);
+
+/**
+ * PUT /api/workplace/:id/employees/:profileId/availability
+ * Manager enters an employee's availability (interim, before the employee app exists).
+ * Body: { weekStart: "YYYY-MM-DD", days: { monday: "full" | "morning" | "evening" | "off", ... } }
+ * Writes an approved availability_submission for the week so the scheduler can use it.
+ */
+workplaceRouter.put(
+  "/:id/employees/:profileId/availability",
+  requireRole("EMPLOYER"),
+  async (req, res, next) => {
+    try {
+      if (req.auth?.workplaceId !== req.params.id) throw httpError(403, "Forbidden");
+      const weekStart = String(req.body?.weekStart ?? "").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) throw httpError(400, "weekStart (YYYY-MM-DD) required");
+      const days = (req.body?.days ?? {}) as Record<string, string>;
+
+      const profile = await query<{ user_id: string }>(
+        `SELECT user_id FROM employee_profiles WHERE id = $1 AND workplace_id = $2`,
+        [req.params.profileId, req.params.id]
+      );
+      if (profile.rows.length === 0) throw httpError(404, "Employee not found");
+      const userId = profile.rows[0].user_id;
+
+      const DOW: Record<string, number> = {
+        sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
+      };
+      const validBlocks: BlockKey[] = ["morning", "evening", "full", "off"];
+      const selections = [];
+      for (const [dayName, block] of Object.entries(days)) {
+        const dow = DOW[dayName.toLowerCase()];
+        if (dow === undefined) throw httpError(400, `Unknown day: ${dayName}`);
+        if (!validBlocks.includes(block as BlockKey)) {
+          throw httpError(400, `Invalid block "${block}" — use morning, evening, full, or off`);
+        }
+        if (block === "off") continue;
+        selections.push(selectionFromBlockInput(dow, block as BlockKey));
+      }
+
+      const grid = gridFromSelections(selections);
+      await query(
+        `INSERT INTO availability_submissions (user_id, workplace_id, week_start, availability_grid, status, submitted_at)
+         VALUES ($1, $2, $3, $4, 'approved', now())
+         ON CONFLICT (user_id, week_start) DO UPDATE SET
+           availability_grid = EXCLUDED.availability_grid, status = 'approved', submitted_at = now()`,
+        [userId, req.params.id, weekStart, JSON.stringify(grid)]
+      );
+
+      // Mirror into the recurring availability table (kept consistent with the employee flow).
+      await query(`DELETE FROM employee_availability WHERE user_id = $1`, [userId]);
+      for (const s of selections) {
+        await query(
+          `INSERT INTO employee_availability (user_id, day_of_week, start_time, end_time)
+           VALUES ($1, $2, $3, $4)`,
+          [userId, s.dayOfWeek, s.startTime, s.endTime]
+        );
+      }
+
+      res.json({ ok: true, weekStart, totalHours: totalHoursFromSelections(selections) });
+    } catch (e) {
+      next(e);
+    }
+  }
+);
 
 /**
  * POST /api/workplaces/:id/invite-link

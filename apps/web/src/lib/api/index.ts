@@ -123,6 +123,28 @@ export const api = {
     });
   },
 
+  async getEmployeeAvailability(
+    workplaceId: string,
+    profileId: string,
+    weekStart: string
+  ): Promise<{ weekStart: string; status: string | null; days: Record<string, string> }> {
+    return apiFetch(
+      `/api/workplace/${workplaceId}/employees/${profileId}/availability?weekStart=${weekStart}`
+    );
+  },
+
+  async setEmployeeAvailability(
+    workplaceId: string,
+    profileId: string,
+    weekStart: string,
+    days: Record<string, string>
+  ): Promise<{ ok: boolean; weekStart: string; totalHours: number }> {
+    return apiFetch(`/api/workplace/${workplaceId}/employees/${profileId}/availability`, {
+      method: 'PUT',
+      body: JSON.stringify({ weekStart, days }),
+    });
+  },
+
   async getScheduleByWeek(_workplaceId: string, weekStart: string) {
     try {
       const detail = await apiFetch<{
