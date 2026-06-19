@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import Layout from './components/Layout';
 import Login from './pages/Login';
+import Signup from './pages/Signup';
+import Join from './pages/Join';
 import Dashboard from './pages/Dashboard';
 import Schedule from './pages/Schedule';
 import Employees from './pages/Employees';
@@ -15,6 +17,8 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/join/:slug" element={<Join />} />
 
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<Dashboard />} />

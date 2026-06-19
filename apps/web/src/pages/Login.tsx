@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { ChefHat, AlertCircle, Mail, Lock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isApiConfigured } from '../lib/api';
@@ -154,13 +154,19 @@ export default function Login() {
             </button>
           </form>
 
-          <div className="text-center mt-5">
-            <button className="text-xs transition-colors" style={{ color: '#71717A' }}
-              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#818CF8'}
-              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#71717A'}
-            >
-              Forgot password?
-            </button>
+          <div className="text-center mt-5 space-y-2">
+            <div>
+              <button className="text-xs transition-colors" style={{ color: '#71717A' }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#818CF8'}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#71717A'}
+              >
+                Forgot password?
+              </button>
+            </div>
+            <div>
+              <span className="text-xs" style={{ color: '#71717A' }}>New here? </span>
+              <Link to="/signup" className="text-xs font-medium" style={{ color: '#818CF8' }}>Create an account</Link>
+            </div>
           </div>
         </div>
 

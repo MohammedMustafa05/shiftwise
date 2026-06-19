@@ -18,6 +18,17 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  signUp: (data: {
+    email: string;
+    password: string;
+    name: string;
+    workplaceName: string;
+    timezone?: string;
+  }) => Promise<{ error: string | null }>;
+  joinWorkplace: (
+    slug: string,
+    data: { email: string; password: string; name: string }
+  ) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }
 
@@ -130,6 +141,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message ?? null };
   }
 
+  async function signUp(data: {
+    email: string;
+    password: string;
+    name: string;
+    workplaceName: string;
+    timezone?: string;
+  }): Promise<{ error: string | null }> {
+    if (!isApiConfigured) {
+      return { error: 'Signup requires the live API. Set VITE_API_URL to enable it.' };
+    }
+    try {
+      const res = await api.signup(data);
+      setAuth(res);
+      setUser(toAppUser(res.user));
+      setToken(res.token);
+      return { error: null };
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : 'Signup failed' };
+    }
+  }
+
+  async function joinWorkplace(
+    slug: string,
+    data: { email: string; password: string; name: string }
+  ): Promise<{ error: string | null }> {
+    if (!isApiConfigured) {
+      return { error: 'Joining requires the live API. Set VITE_API_URL to enable it.' };
+    }
+    try {
+      const res = await api.join(slug, data);
+      setAuth(res);
+      setUser(toAppUser(res.user));
+      setToken(res.token);
+      return { error: null };
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : 'Could not join workplace' };
+    }
+  }
+
   async function signOut() {
     if (isApiConfigured) {
       clearAuth();
@@ -147,7 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, token, loading, signIn, signUp, joinWorkplace, signOut }}>
       {children}
     </AuthContext.Provider>
   );
