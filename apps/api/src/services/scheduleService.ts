@@ -36,6 +36,7 @@ import {
   buildMinimalWorkersNeeded,
   remapWorkersNeededToScheduleWeek,
   scheduleWeekDates,
+  applyRoleRequirements,
 } from "../utils/labourDemand.js";
 
 type ProfileRow = {

@@ -10,6 +10,7 @@ import {
   ROLE_CAPS,
   roleTargetsForTotalWorkers,
   workersNeededMaps,
+  applyRoleRequirements,
   operatingHoursForDate,
   OPERATING_HOUR_START,
   OPERATING_HOUR_END,
@@ -1211,6 +1212,11 @@ export function runFloorEngineOnly(params: {
 }): { shifts: ValidatedShift[]; gaps: SolverHardFlag[] } {
   const { employees, availability, approvedTimeOff, preferences, workersNeeded, weekStart } = params;
   const demand = workersNeededMaps(workersNeeded, weekStart);
+  const roleReq = ((preferences.constraints ?? {}) as Record<string, unknown>).roleRequirements as
+    Record<string, Array<{ from: string; to: string; cooks?: number; cashiers?: number; packliners?: number }>> | undefined;
+  if (roleReq && Object.keys(roleReq).length > 0) {
+    applyRoleRequirements(demand, roleReq);
+  }
   const callbacks = initSolverCallbacks({ employees, availability, approvedTimeOff, preferences });
 
   const accepted: ValidatedShift[] = [];
@@ -1288,6 +1294,11 @@ export function validateAndFill(params: {
   }
 
   const demand = workersNeededMaps(workersNeeded, weekStart);
+  const roleReq = ((preferences.constraints ?? {}) as Record<string, unknown>).roleRequirements as
+    Record<string, Array<{ from: string; to: string; cooks?: number; cashiers?: number; packliners?: number }>> | undefined;
+  if (roleReq && Object.keys(roleReq).length > 0) {
+    applyRoleRequirements(demand, roleReq);
+  }
   const {
     empById,
     availByUser,
@@ -1374,14 +1385,15 @@ export function validateAndFill(params: {
       return false;
     }
 
-    // Coupled role constraint: Cook ≤ Cash ≤ Pack.  Applied to both LLM suggestions
-    // and engine-assigned shifts — the role distribution table is always binding.
+    // Role cap constraint: check against per-hour role targets from demand maps
+    // (which include manager-configured role requirements when set).
     const candidateRole = canonicalRole(shift.role);
     if (isStaffingRole(candidateRole)) {
       for (const hour of hoursCoveredByShift(shift.startTime, shift.endTime)) {
         if (!isOperatingHour(shift.date, hour)) continue;
         const counts = concurrentRoleCounts(accepted, shift.date, hour);
-        if (!addingRoleIsValid(counts, candidateRole)) {
+        const targets = roleTargetsForHour(demand, shift.date, hour);
+        if (counts[candidateRole] >= targets[candidateRole]) {
           violationsFixed++;
           return false;
         }

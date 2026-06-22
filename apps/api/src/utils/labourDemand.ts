@@ -356,6 +356,57 @@ export function workersNeededMaps(
   };
 }
 
+/**
+ * Overlay manager-configured role requirements onto the demand maps.
+ * roleRequirements is stored as: { monday: [{ from, to, cooks, cashiers, packliners }], ... }
+ * For each day+hour covered by a rule, we raise the hourlyRoleTargets to at least
+ * the manager-specified minimum per role.
+ */
+export function applyRoleRequirements(
+  demand: WorkersNeededMaps,
+  roleRequirements: Record<string, Array<{ from: string; to: string; cooks?: number; cashiers?: number; packliners?: number }>>
+): void {
+  const dayToWeekday: Record<string, number> = {
+    sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+    thursday: 4, friday: 5, saturday: 6,
+  };
+
+  for (const date of demand.scheduleDates) {
+    const jsDay = new Date(`${date}T12:00:00Z`).getUTCDay();
+    const dayName = Object.entries(dayToWeekday).find(([, v]) => v === jsDay)?.[0];
+    if (!dayName) continue;
+
+    const bands = roleRequirements[dayName];
+    if (!Array.isArray(bands)) continue;
+
+    for (const band of bands) {
+      const fromH = parseInt(band.from?.slice(0, 2) ?? "0", 10);
+      const toH = parseInt(band.to?.slice(0, 2) ?? "0", 10) || 24;
+      const minCook = band.cooks ?? 0;
+      const minCash = band.cashiers ?? 0;
+      const minPack = band.packliners ?? 0;
+
+      for (let hour = fromH; hour < toH; hour++) {
+        const key = `${date}|${hour}`;
+        const existing = demand.hourlyRoleTargets.get(key);
+        if (!existing) continue;
+
+        const updated = { ...existing };
+        if (minCook > updated.COOK) updated.COOK = minCook;
+        if (minCash > updated.CASHIER) updated.CASHIER = minCash;
+        if (minPack > updated.PACKLINER) updated.PACKLINER = minPack;
+        demand.hourlyRoleTargets.set(key, updated);
+
+        const total = updated.COOK + updated.CASHIER + updated.PACKLINER;
+        const currentCap = demand.hourlyCap.get(key) ?? MANDATORY_FLOOR;
+        if (total > currentCap) {
+          demand.hourlyCap.set(key, total);
+        }
+      }
+    }
+  }
+}
+
 /** Floor-only demand when ML predictions are missing — 1 cook + 1 pack + 1 cash per operating hour. */
 export function buildMinimalWorkersNeeded(
   weekStart: string
