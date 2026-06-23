@@ -28,6 +28,8 @@ const MIN_SHIFT_HOURS = 3;
 /** Floor closing shifts may be 2h when they extend to store close. */
 const FLOOR_MIN_SHIFT_HOURS = 2;
 const MAX_SHIFT_HOURS = 14;
+/** Every available employee should work at least this many days per week. */
+const DEFAULT_MIN_SHIFTS_PER_WEEK = 2;
 /**
  * Maximum hours a single shift may grow to via extension.
  * Prefer assigning a second employee for coverage beyond this point.
@@ -1260,6 +1262,116 @@ export function assertFloorCoverage(shifts: ValidatedShift[], scheduleDates: str
   }
 }
 
+/**
+ * Phase 4b: ensure every available employee gets at least DEFAULT_MIN_SHIFTS_PER_WEEK
+ * days of work. Assigns the employee to the day+role where they add the most value
+ * (highest understaffing vs demand targets).
+ */
+function fairnessPass(
+  accepted: ValidatedShift[],
+  hoursByUser: Map<string, number>,
+  acceptedSlotKeys: Set<string>,
+  employees: SolverEmployee[],
+  empById: Map<string, SolverEmployee>,
+  availByUser: Map<string, SolverAvailability[]>,
+  demand: WorkersNeededMaps,
+  maxHoursFor: (emp: SolverEmployee) => number,
+  isWithinAvailability: (userId: string, date: string, start: string, end: string) => boolean,
+  hasTimeOff: (userId: string, date: string) => boolean,
+  roleMatches: (emp: SolverEmployee, role: string) => boolean,
+): void {
+  const shiftDaysByUser = new Map<string, Set<string>>();
+  for (const sh of accepted) {
+    const days = shiftDaysByUser.get(sh.employeeId) ?? new Set<string>();
+    days.add(sh.shiftDate);
+    shiftDaysByUser.set(sh.employeeId, days);
+  }
+
+  const underScheduled = employees
+    .filter((e) => {
+      const minRequired = Math.max(e.min_shifts ?? 0, DEFAULT_MIN_SHIFTS_PER_WEEK);
+      const currentDays = shiftDaysByUser.get(e.user_id)?.size ?? 0;
+      return currentDays < minRequired;
+    })
+    .sort((a, b) => {
+      const aDays = shiftDaysByUser.get(a.user_id)?.size ?? 0;
+      const bDays = shiftDaysByUser.get(b.user_id)?.size ?? 0;
+      return aDays - bDays;
+    });
+
+  const fillOrder: StaffingRole[] = ["COOK", "CASHIER", "PACKLINER"];
+
+  for (const emp of underScheduled) {
+    const minRequired = Math.max(emp.min_shifts ?? 0, DEFAULT_MIN_SHIFTS_PER_WEEK);
+    const scheduledDays = shiftDaysByUser.get(emp.user_id) ?? new Set<string>();
+
+    for (const date of demand.scheduleDates) {
+      if (scheduledDays.size >= minRequired) break;
+      if (scheduledDays.has(date)) continue;
+      if (hasTimeOff(emp.user_id, date)) continue;
+
+      const dow = dowOf(date);
+      const blocks = (availByUser.get(emp.user_id) ?? []).filter((b) => b.day_of_week === dow);
+      if (blocks.length === 0) continue;
+
+      // Pick the role with the most understaffing on this day
+      let bestRole: StaffingRole | null = null;
+      let bestDeficit = -Infinity;
+      for (const role of fillOrder) {
+        if (!roleMatches(emp, role)) continue;
+        const { open, close } = operatingHoursForDate(date);
+        let deficit = 0;
+        for (let h = open; h < close; h++) {
+          const target = roleTargetsForHour(demand, date, h)[role];
+          const current = concurrentRoleCounts(accepted, date, h)[role];
+          deficit += Math.max(0, target - current);
+        }
+        if (deficit > bestDeficit) {
+          bestDeficit = deficit;
+          bestRole = role;
+        }
+      }
+      if (!bestRole) continue;
+
+      // Try to assign via bestOperatingShiftWindow on each availability block
+      const { open, close } = operatingHoursForDate(date);
+      const midHour = Math.floor((open + close) / 2);
+      for (const block of blocks) {
+        const win = bestOperatingShiftWindow(block.start_time, block.end_time, midHour, date, {
+          floorPhase: false,
+          demandWindow: { open, close },
+        });
+        if (!win) continue;
+        if (!isWithinAvailability(emp.user_id, date, win.start, win.end)) continue;
+        if (shiftsOverlap(accepted, emp.user_id, date, win.start, win.end)) continue;
+
+        const shiftHrs = shiftLengthHours(win.start, win.end);
+        const totalHrs = (hoursByUser.get(emp.user_id) ?? 0) + shiftHrs;
+        if (totalHrs > maxHoursFor(emp)) continue;
+
+        const slotKey = `${emp.user_id}|${date}|${win.start}|${bestRole}`;
+        if (acceptedSlotKeys.has(slotKey)) continue;
+
+        hoursByUser.set(emp.user_id, totalHrs);
+        acceptedSlotKeys.add(slotKey);
+        accepted.push({
+          employeeId: emp.user_id,
+          day: DAY_NAMES[dow] ?? "MON",
+          shiftDate: date,
+          startTime: win.start,
+          endTime: win.end,
+          role: bestRole,
+          location: "Main",
+          isEngineSuggested: true,
+          llmReasoning: "Solver: fairness — minimum shifts guarantee",
+        });
+        scheduledDays.add(date);
+        break;
+      }
+    }
+  }
+}
+
 export function validateAndFill(params: {
   llmSuggestions: LLMShiftSuggestion[];
   baselineShifts: BaselineShift[];
@@ -1484,6 +1596,21 @@ export function validateAndFill(params: {
   for (let pass = 0; pass < 2; pass++) {
     violationsFixed += fillRoleGaps({ ...fillCtx, phase: "demand" });
   }
+
+  // ── Phase 4b: Fairness — guarantee every available employee gets minimum shifts ──
+  fairnessPass(
+    accepted,
+    hoursByUser,
+    acceptedSlotKeys,
+    employees,
+    empById,
+    availByUser,
+    demand,
+    maxHoursFor,
+    isWithinAvailability,
+    hasTimeOff,
+    roleMatches
+  );
 
   // ── Phase 5: Prune over-staffing (never below floor role composition) ──
   violationsFixed += pruneOverScheduling(accepted, demand, empById);
