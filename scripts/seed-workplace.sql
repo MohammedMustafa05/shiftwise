@@ -12,21 +12,14 @@
 -- Everything is idempotent — safe to re-run.
 -- =============================================================================
 
--- ╔══════════════════════════════════════════════════════════╗
--- ║  CHANGE THIS to match your workplace name               ║
--- ╚══════════════════════════════════════════════════════════╝
-
-\set WORKPLACE_SEARCH '%mary brown%'
-
--- Can't use \set in Supabase SQL Editor, so we use a DO block variable instead.
--- Just change the string on the line marked ★ below.
+-- Just change the WORKPLACE_NAME variable on the line marked ★ inside the DO block below.
 
 BEGIN;
 
 DO $$
 DECLARE
   -- ★ CHANGE THIS to your workplace name (uses ILIKE, so partial match works)
-  WORKPLACE_NAME TEXT := '%mary brown%';
+  WORKPLACE_NAME TEXT := '%Test Mary Browns%';
 
   v_wp_id UUID;
   v_mgr_id UUID;
