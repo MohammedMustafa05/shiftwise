@@ -356,6 +356,88 @@ export function workersNeededMaps(
   };
 }
 
+export type RoleOverrideFlag = {
+  type: "preference_override";
+  date: string;
+  hour: number;
+  role: StaffingRole;
+  formulaCount: number;
+  managerCount: number;
+  message: string;
+};
+
+/**
+ * Merge manager-configured role requirements with sales-driven demand.
+ * Strategy: MAX(formula, preferences) per role per hour.
+ *   - If sales demand ≥ manager preference → formula wins (already cost-justified)
+ *   - If manager preference > sales demand → manager wins (they know their restaurant)
+ *     and a flag is emitted so the schedule summary shows the cost impact
+ *
+ * roleRequirements: { monday: [{ from, to, cooks, cashiers, packliners }], ... }
+ */
+export function applyRoleRequirements(
+  demand: WorkersNeededMaps,
+  roleRequirements: Record<string, Array<{ from: string; to: string; cooks?: number; cashiers?: number; packliners?: number }>>,
+  avgWage: number = AVG_WAGE
+): RoleOverrideFlag[] {
+  const flags: RoleOverrideFlag[] = [];
+  const dayToWeekday: Record<string, number> = {
+    sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+    thursday: 4, friday: 5, saturday: 6,
+  };
+
+  for (const date of demand.scheduleDates) {
+    const jsDay = new Date(`${date}T12:00:00Z`).getUTCDay();
+    const dayName = Object.entries(dayToWeekday).find(([, v]) => v === jsDay)?.[0];
+    if (!dayName) continue;
+
+    const bands = roleRequirements[dayName]
+      ?? roleRequirements[dayName.charAt(0).toUpperCase() + dayName.slice(1)];
+    if (!Array.isArray(bands)) continue;
+
+    for (const band of bands) {
+      const fromH = parseInt(band.from?.slice(0, 2) ?? "0", 10);
+      const toH = parseInt(band.to?.slice(0, 2) ?? "0", 10) || 24;
+      const mins: Record<StaffingRole, number> = {
+        COOK: band.cooks ?? 0,
+        CASHIER: band.cashiers ?? 0,
+        PACKLINER: band.packliners ?? 0,
+      };
+
+      for (let hour = fromH; hour < toH; hour++) {
+        const key = `${date}|${hour}`;
+        const existing = demand.hourlyRoleTargets.get(key);
+        if (!existing) continue;
+
+        const updated = { ...existing };
+        for (const role of ["COOK", "CASHIER", "PACKLINER"] as StaffingRole[]) {
+          if (mins[role] > updated[role]) {
+            flags.push({
+              type: "preference_override",
+              date,
+              hour,
+              role,
+              formulaCount: updated[role],
+              managerCount: mins[role],
+              message: `Manager requires ${mins[role]} ${role.toLowerCase()}${mins[role] > 1 ? "s" : ""} at ${hour}:00 (sales formula: ${updated[role]}) — +$${avgWage}/hr`,
+            });
+            updated[role] = mins[role];
+          }
+        }
+        demand.hourlyRoleTargets.set(key, updated);
+
+        const total = updated.COOK + updated.CASHIER + updated.PACKLINER;
+        const currentCap = demand.hourlyCap.get(key) ?? MANDATORY_FLOOR;
+        if (total > currentCap) {
+          demand.hourlyCap.set(key, total);
+        }
+      }
+    }
+  }
+
+  return flags;
+}
+
 /** Floor-only demand when ML predictions are missing — 1 cook + 1 pack + 1 cash per operating hour. */
 export function buildMinimalWorkersNeeded(
   weekStart: string
