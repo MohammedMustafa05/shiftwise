@@ -391,7 +391,8 @@ export function applyRoleRequirements(
     const dayName = Object.entries(dayToWeekday).find(([, v]) => v === jsDay)?.[0];
     if (!dayName) continue;
 
-    const bands = roleRequirements[dayName];
+    const bands = roleRequirements[dayName]
+      ?? roleRequirements[dayName.charAt(0).toUpperCase() + dayName.slice(1)];
     if (!Array.isArray(bands)) continue;
 
     for (const band of bands) {

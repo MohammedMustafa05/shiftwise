@@ -351,18 +351,18 @@ function removableWithoutBreakingFloor(
 
 function exceedsRoleCapAtAnyHour(
   shifts: ValidatedShift[],
-  candidate: { date: string; start_time: string; end_time: string; role: string }
+  candidate: { date: string; start_time: string; end_time: string; role: string },
+  demand?: WorkersNeededMaps
 ): boolean {
   const role = canonicalRole(candidate.role);
   if (!isStaffingRole(role)) return false;
   for (const hour of hoursCoveredByShift(candidate.start_time, candidate.end_time)) {
     if (!isOperatingHour(candidate.date, hour)) continue;
     const counts = concurrentRoleCounts(shifts, candidate.date, hour);
-    // Hard individual cap
-    if (counts[role] >= ROLE_CAPS[role]) return true;
-    // Coupled constraint: Cook ≤ Cash ≤ Pack — e.g. a second Cashier is invalid
-    // until Pack is also ≥ 2 (i.e. 5+ total workers).  Prevents 1C/2Ca/1P splits.
-    if (!addingRoleIsValid(counts, role)) return true;
+    const effectiveCap = demand
+      ? Math.max(ROLE_CAPS[role], roleTargetsForHour(demand, candidate.date, hour)[role])
+      : ROLE_CAPS[role];
+    if (counts[role] >= effectiveCap) return true;
   }
   return false;
 }
@@ -410,7 +410,7 @@ function exceedsLabourCap(
     start_time: candidate.start_time,
     end_time: candidate.end_time,
     role: candidate.role ?? "STAFF",
-  })) {
+  }, demand)) {
     return true;
   }
 
