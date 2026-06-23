@@ -537,6 +537,15 @@ export async function generateSchedule(
         violationsFixed: violationsFixed + coverageFixes,
         preferenceOverrides,
         roleRequirementOverrides: preferenceOverrideFlags,
+        // Surface what the LLM recommended so the UI's "AI Suggestions" panel can
+        // diff it against the final (solver-adjusted) schedule.
+        llmSuggestedShifts: llmOutput.shifts.map((s) => ({
+          employeeId: s.employee_id,
+          shiftDate: s.date,
+          startTime: s.start_time,
+          endTime: s.end_time,
+          role: s.role,
+        })),
       }),
     ]
   );
