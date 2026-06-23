@@ -386,14 +386,21 @@ export function applyRoleRequirements(
     thursday: 4, friday: 5, saturday: 6,
   };
 
+  console.log("[applyRoleRequirements] Input keys:", Object.keys(roleRequirements));
+  console.log("[applyRoleRequirements] Schedule dates:", demand.scheduleDates);
+
   for (const date of demand.scheduleDates) {
     const jsDay = new Date(`${date}T12:00:00Z`).getUTCDay();
     const dayName = Object.entries(dayToWeekday).find(([, v]) => v === jsDay)?.[0];
     if (!dayName) continue;
 
-    const bands = roleRequirements[dayName]
-      ?? roleRequirements[dayName.charAt(0).toUpperCase() + dayName.slice(1)];
-    if (!Array.isArray(bands)) continue;
+    const titleCase = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+    const bands = roleRequirements[dayName] ?? roleRequirements[titleCase];
+    if (!Array.isArray(bands)) {
+      console.log(`[applyRoleRequirements] No bands for ${date} (tried "${dayName}" and "${titleCase}")`);
+      continue;
+    }
+    console.log(`[applyRoleRequirements] ${date} (${titleCase}): ${bands.length} bands`);
 
     for (const band of bands) {
       const fromH = parseInt(band.from?.slice(0, 2) ?? "0", 10);
@@ -406,8 +413,12 @@ export function applyRoleRequirements(
 
       for (let hour = fromH; hour < toH; hour++) {
         const key = `${date}|${hour}`;
-        const existing = demand.hourlyRoleTargets.get(key);
-        if (!existing) continue;
+        let existing = demand.hourlyRoleTargets.get(key);
+        if (!existing) {
+          existing = combinedRoleTargets(MANDATORY_FLOOR);
+          demand.hourlyRoleTargets.set(key, existing);
+          demand.hourlyCap.set(key, MANDATORY_FLOOR);
+        }
 
         const updated = { ...existing };
         for (const role of ["COOK", "CASHIER", "PACKLINER"] as StaffingRole[]) {
@@ -435,6 +446,7 @@ export function applyRoleRequirements(
     }
   }
 
+  console.log(`[applyRoleRequirements] Generated ${flags.length} override flags`);
   return flags;
 }
 

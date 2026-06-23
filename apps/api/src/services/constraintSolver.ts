@@ -1411,12 +1411,17 @@ export function validateAndFill(params: {
   }
 
   const demand = workersNeededMaps(workersNeeded, weekStart);
+  console.log("[validateAndFill] preferences.constraints:", JSON.stringify(preferences.constraints ?? null));
   const roleReq = ((preferences.constraints ?? {}) as Record<string, unknown>).roleRequirements as
     Record<string, Array<{ from: string; to: string; cooks?: number; cashiers?: number; packliners?: number }>> | undefined;
   let preferenceOverrideFlags: RoleOverrideFlag[] = [];
   if (roleReq && Object.keys(roleReq).length > 0) {
+    console.log("[validateAndFill] Calling applyRoleRequirements with", Object.keys(roleReq).length, "days");
     const avgWage = (preferences as Record<string, unknown>).avgHourlyWage as number | undefined;
     preferenceOverrideFlags = applyRoleRequirements(demand, roleReq, avgWage ?? undefined);
+    console.log("[validateAndFill] applyRoleRequirements returned", preferenceOverrideFlags.length, "flags");
+  } else {
+    console.log("[validateAndFill] No roleRequirements found in preferences");
   }
   const {
     empById,
