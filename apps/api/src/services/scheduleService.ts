@@ -454,7 +454,7 @@ export async function generateSchedule(
     llmReasoning: s.llmReasoning,
   }));
 
-  const { shifts: validatedShifts, violationsFixed, roleCoverageGaps, hardFlags } = validateAndFill({
+  const { shifts: validatedShifts, violationsFixed, roleCoverageGaps, hardFlags, preferenceOverrideFlags } = validateAndFill({
     llmSuggestions: llmOutput.shifts,
     baselineShifts: [...floorBaselineShifts, ...mlResult.shifts],
     ...solverParams,
@@ -536,6 +536,7 @@ export async function generateSchedule(
         canPublish: allHardFlags.length === 0,
         violationsFixed: violationsFixed + coverageFixes,
         preferenceOverrides,
+        roleRequirementOverrides: preferenceOverrideFlags,
       }),
     ]
   );
@@ -595,10 +596,20 @@ export async function generateSchedule(
     scheduleWeekDates(weekStart)
   );
 
+  const overrideFlags = preferenceOverrideFlags.length > 0
+    ? preferenceOverrideFlags.map((f) => ({
+        type: "preference_override" as const,
+        date: f.date,
+        hour: f.hour,
+        message: f.message,
+      }))
+    : [];
+
   return {
     ...mlResult,
     scheduleId,
     shifts: persistedShifts,
+    flags: [...(mlResult.flags ?? []), ...overrideFlags],
   };
 }
 

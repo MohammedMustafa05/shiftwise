@@ -11,6 +11,7 @@ import {
   roleTargetsForTotalWorkers,
   workersNeededMaps,
   applyRoleRequirements,
+  type RoleOverrideFlag,
   operatingHoursForDate,
   OPERATING_HOUR_START,
   OPERATING_HOUR_END,
@@ -259,10 +260,13 @@ function requiredRoleCountAtHour(
   role: StaffingRole,
   phase: "floor" | "demand"
 ): number {
-  if (phase === "floor") {
-    return CORE_ROLE_MIN;
-  }
   const targets = roleTargetsForHour(demand, date, hour);
+  if (phase === "floor") {
+    // Floor guarantees manager-specified minimums (which are already
+    // merged into targets via applyRoleRequirements). This ensures
+    // "2 cooks at lunch" is treated as mandatory, not optional.
+    return Math.max(CORE_ROLE_MIN, targets[role]);
+  }
   return Math.max(CORE_ROLE_MIN, targets[role]);
 }
 
@@ -1270,6 +1274,7 @@ export function validateAndFill(params: {
   violationsFixed: number;
   roleCoverageGaps: string[];
   hardFlags: SolverHardFlag[];
+  preferenceOverrideFlags: RoleOverrideFlag[];
 } {
   const {
     llmSuggestions,
@@ -1296,8 +1301,10 @@ export function validateAndFill(params: {
   const demand = workersNeededMaps(workersNeeded, weekStart);
   const roleReq = ((preferences.constraints ?? {}) as Record<string, unknown>).roleRequirements as
     Record<string, Array<{ from: string; to: string; cooks?: number; cashiers?: number; packliners?: number }>> | undefined;
+  let preferenceOverrideFlags: RoleOverrideFlag[] = [];
   if (roleReq && Object.keys(roleReq).length > 0) {
-    applyRoleRequirements(demand, roleReq);
+    const avgWage = (preferences as Record<string, unknown>).avgHourlyWage as number | undefined;
+    preferenceOverrideFlags = applyRoleRequirements(demand, roleReq, avgWage ?? undefined);
   }
   const {
     empById,
@@ -1496,5 +1503,6 @@ export function validateAndFill(params: {
     violationsFixed,
     roleCoverageGaps,
     hardFlags: deduplicateFlags(hardFlags),
+    preferenceOverrideFlags,
   };
 }
