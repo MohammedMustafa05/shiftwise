@@ -59,39 +59,45 @@ BEGIN
   -- ═══════════════════════════════════════════════════════════
   -- Step 1: Seed 19 employees with availability
   -- ═══════════════════════════════════════════════════════════
+  -- Build a unique email suffix from the workplace ID to avoid conflicts
+  -- when seeding multiple workplaces
+  DECLARE
+    v_email_suffix TEXT := replace(v_wp_id::text, '-', '') || '.local';
+  BEGIN
+
   CREATE TEMP TABLE _emp (
-    n TEXT, e TEXT,
+    n TEXT, e_prefix TEXT,
     mon TEXT, tue TEXT, wed TEXT, thu TEXT, fri TEXT, sat TEXT, sun TEXT
   ) ON COMMIT DROP;
 
   INSERT INTO _emp VALUES
-    ('Lisa',        'lisa@marybrowns.local',       'full','full','full','full','full','full','full'),
-    ('Aayan',       'aayan@marybrowns.local',      'full','full','full','full','full','full','full'),
-    ('Mehran',      'mehran@marybrowns.local',      'full','full','full','full','full','morning','morning'),
-    ('Omrah',       'omrah@marybrowns.local',       'full','full','full','full','full','full','full'),
-    ('Rupali',      'rupali@marybrowns.local',      'full','full','full','full','full','full','full'),
-    ('Sakeena',     'sakeena@marybrowns.local',     'full','full','full','full','full','full','full'),
-    ('Aaima',       'aaima@marybrowns.local',       'full','full','full','full','full','full','full'),
-    ('Mubeen',      'mubeen@marybrowns.local',      'full','full','full','full','full','full','full'),
-    ('Abdul Nafay', 'abdulnafay@marybrowns.local',  'full','full','full','full','full','full','full'),
-    ('Hassan',      'hassan@marybrowns.local',      'full','full','full','full','full','full','full'),
-    ('Inayah',      'inayah@marybrowns.local',      'full','full','full','full','full','full','full'),
-    ('Ghazia',      'ghazia@marybrowns.local',      'full','off','off','off','full','full','full'),
-    ('Logan',       'logan@marybrowns.local',        'full','full','off','full','full','full','full'),
-    ('Mehrab',      'mehrab@marybrowns.local',       'full','full','full','full','full','full','full'),
-    ('Shahmeer',    'shahmeer@marybrowns.local',     'full','full','full','full','full','full','full'),
-    ('Sana',        'sana@marybrowns.local',         'evening','off','off','off','off','full','full'),
-    ('Pankaj',      'pankaj@marybrowns.local',       'off','full','off','full','full','off','off'),
-    ('Simran',      'simran@marybrowns.local',       'full','full','full','full','full','full','full'),
-    ('Kazim',       'kazim@marybrowns.local',        'full','full','full','full','full','full','full');
+    ('Lisa',        'lisa',        'full','full','full','full','full','full','full'),
+    ('Aayan',       'aayan',       'full','full','full','full','full','full','full'),
+    ('Mehran',      'mehran',      'full','full','full','full','full','morning','morning'),
+    ('Omrah',       'omrah',       'full','full','full','full','full','full','full'),
+    ('Rupali',      'rupali',      'full','full','full','full','full','full','full'),
+    ('Sakeena',     'sakeena',     'full','full','full','full','full','full','full'),
+    ('Aaima',       'aaima',       'full','full','full','full','full','full','full'),
+    ('Mubeen',      'mubeen',      'full','full','full','full','full','full','full'),
+    ('Abdul Nafay', 'abdulnafay',  'full','full','full','full','full','full','full'),
+    ('Hassan',      'hassan',      'full','full','full','full','full','full','full'),
+    ('Inayah',      'inayah',      'full','full','full','full','full','full','full'),
+    ('Ghazia',      'ghazia',      'full','off','off','off','full','full','full'),
+    ('Logan',       'logan',       'full','full','off','full','full','full','full'),
+    ('Mehrab',      'mehrab',      'full','full','full','full','full','full','full'),
+    ('Shahmeer',    'shahmeer',    'full','full','full','full','full','full','full'),
+    ('Sana',        'sana',        'evening','off','off','off','off','full','full'),
+    ('Pankaj',      'pankaj',      'off','full','off','full','full','off','off'),
+    ('Simran',      'simran',      'full','full','full','full','full','full','full'),
+    ('Kazim',       'kazim',       'full','full','full','full','full','full','full');
 
   FOR rec IN SELECT * FROM _emp LOOP
-    -- Create user (password: ShiftAgent2026!)
+    -- Create user with workplace-unique email (password: ShiftAgent2026!)
     INSERT INTO users (id, email, password_hash, role, workplace_id, name, created_at, updated_at)
-    VALUES (gen_random_uuid(), rec.e,
+    VALUES (gen_random_uuid(), rec.e_prefix || '@' || v_email_suffix,
       '$2b$10$LZpHs8vFRMliJ5G5y8nSxeVqZqGnGJl2Xs1GVHrVhHqR7D1Kq1Wbm',
       'EMPLOYEE', v_wp_id, rec.n, NOW(), NOW())
-    ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
+    ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, workplace_id = EXCLUDED.workplace_id
     RETURNING id INTO v_uid;
 
     INSERT INTO employee_profiles (id, user_id, workplace_id, role, created_at, updated_at)
@@ -175,6 +181,8 @@ BEGIN
   END LOOP;
 
   RAISE NOTICE '✓ 19 employees + availability seeded (current week + 3 future weeks)';
+
+  END; -- close inner DECLARE block for v_email_suffix
 
   -- ═══════════════════════════════════════════════════════════
   -- Step 2: Seed dev sales data (8 weeks)
