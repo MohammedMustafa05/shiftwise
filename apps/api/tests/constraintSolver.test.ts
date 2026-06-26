@@ -629,4 +629,83 @@ describe("validateAndFill", () => {
 
     expect(shifts.some((s) => s.role === "PACKLINER" && s.employeeId === multiId)).toBe(true);
   });
+
+  it("honours descending preference bands hour-by-hour (authoritative, with trimming)", () => {
+    const date = "2026-06-01"; // Monday
+    // Manager bands for Monday:
+    //   10:00–16:00 → 1 cook / 1 cashier / 3 packliners
+    //   16:00–20:00 → 1 cook / 2 cashier / 4 packliners
+    //   20:00–22:00 → 1 cook / 2 cashier / 2 packliners
+    const mk = (n: number, role: string) =>
+      Array.from({ length: n }, (_, i) => ({
+        user_id: `${role[0].toLowerCase()}${i}-0000-0000-0000-000000000000`.padEnd(36, "0").slice(0, 36),
+        role,
+        max_hours: 40,
+      }));
+    const employees = [...mk(2, "COOK"), ...mk(3, "CASHIER"), ...mk(5, "PACKLINER")];
+    const availability = employees.map((e) => ({
+      user_id: e.user_id,
+      day_of_week: 1,
+      start_time: "10:00",
+      end_time: "22:00",
+    }));
+
+    const { shifts } = validateAndFill({
+      ...baseParams,
+      employees,
+      availability,
+      preferences: {
+        constraints: {
+          roleRequirements: {
+            Monday: [
+              { from: "10:00", to: "16:00", cooks: 1, cashiers: 1, packliners: 3 },
+              { from: "16:00", to: "20:00", cooks: 1, cashiers: 2, packliners: 4 },
+              { from: "20:00", to: "22:00", cooks: 1, cashiers: 2, packliners: 2 },
+            ],
+          },
+        },
+        labourCostPct: 0.2,
+        avgHourlyWage: 20,
+      },
+      llmSuggestions: [],
+    });
+
+    const countAt = (hour: number, role: string) =>
+      shifts.filter(
+        (s) =>
+          s.shiftDate === date &&
+          s.role === role &&
+          toMin(s.startTime) <= hour * 60 &&
+          endMin(s.endTime, s.startTime) > hour * 60
+      ).length;
+
+    // Each band's exact counts must hold at every hour it covers.
+    for (let h = 10; h < 16; h++) {
+      expect(countAt(h, "COOK")).toBe(1);
+      expect(countAt(h, "CASHIER")).toBe(1);
+      expect(countAt(h, "PACKLINER")).toBe(3);
+    }
+    for (let h = 16; h < 20; h++) {
+      expect(countAt(h, "COOK")).toBe(1);
+      expect(countAt(h, "CASHIER")).toBe(2);
+      expect(countAt(h, "PACKLINER")).toBe(4);
+    }
+    for (let h = 20; h < 22; h++) {
+      expect(countAt(h, "COOK")).toBe(1);
+      expect(countAt(h, "CASHIER")).toBe(2);
+      expect(countAt(h, "PACKLINER")).toBe(2);
+    }
+  });
 });
+
+function toMin(t: string): number {
+  const [h, m] = t.split(":").map((n) => parseInt(n, 10));
+  return h * 60 + (m || 0);
+}
+function endMin(end: string, start: string): number {
+  const e = toMin(end);
+  const s = toMin(start);
+  if (e === 0 && s >= 12 * 60) return 24 * 60;
+  if (e <= s && s > 0) return e + 24 * 60;
+  return e;
+}

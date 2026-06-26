@@ -885,6 +885,82 @@ function pruneOverScheduling(
   return removed;
 }
 
+/**
+ * Trim shift edges that spill into preference-controlled hours where the
+ * employee's role is over the manager's exact target. Whole-shift pruning
+ * cannot reshape a shift that is in-target for part of its span and
+ * over-target for another part (e.g. a 16:00–22:00 packliner when the
+ * manager wants 4 packliners 16:00–20:00 but only 2 from 20:00–22:00 —
+ * the shift cannot be removed without breaking the 16:00–20:00 floor).
+ *
+ * This pass peels over-target hours off the START and END of each shift,
+ * one hour at a time, until every preference-controlled hour holds exactly
+ * the manager's count. It never trims an hour whose removal would drop the
+ * role below target (we only trim when count > target, leaving count-1 ≥
+ * target), so it can never create a new coverage gap. Returns shifts trimmed.
+ */
+function trimToPreferenceBands(accepted: ValidatedShift[], demand: WorkersNeededMaps): number {
+  let trimmed = 0;
+  let changed = true;
+  let guard = 0;
+
+  while (changed && guard++ < 1000) {
+    changed = false;
+
+    for (let i = 0; i < accepted.length; i++) {
+      const sh = accepted[i];
+      const role = canonicalRole(sh.role);
+      if (!isStaffingRole(role)) continue;
+
+      const startMin = toMinutes(sh.startTime);
+      const endMin = effectiveEndMinutes(sh.endTime, sh.startTime);
+      const firstH = Math.floor(startMin / 60);
+      const lastH = Math.ceil(endMin / 60) - 1;
+
+      const overTarget = (hour: number): boolean => {
+        if (!demand.preferenceControlledHours.has(`${sh.shiftDate}|${hour}`)) return false;
+        const counts = concurrentRoleCounts(accepted, sh.shiftDate, hour);
+        const target = roleTargetsForHour(demand, sh.shiftDate, hour)[role];
+        return counts[role] > target;
+      };
+
+      // Peel the END hour if it is over the manager's target there.
+      if (overTarget(lastH)) {
+        const newEndMin = lastH * 60;
+        if (newEndMin > startMin) {
+          sh.endTime = fromMinutes(newEndMin);
+          trimmed++;
+          changed = true;
+          continue;
+        }
+        // Entire shift is a single over-target hour → drop it.
+        accepted.splice(i, 1);
+        trimmed++;
+        changed = true;
+        i--;
+        continue;
+      }
+
+      // Peel the START hour if it is over the manager's target there.
+      if (overTarget(firstH)) {
+        const newStartMin = (firstH + 1) * 60;
+        if (newStartMin < endMin) {
+          sh.startTime = fromMinutes(newStartMin);
+          trimmed++;
+          changed = true;
+          continue;
+        }
+        accepted.splice(i, 1);
+        trimmed++;
+        changed = true;
+        i--;
+      }
+    }
+  }
+
+  return trimmed;
+}
+
 function fillRoleGaps(params: {
   accepted: ValidatedShift[];
   hoursByUser: Map<string, number>;
@@ -1678,6 +1754,12 @@ export function validateAndFill(params: {
 
   // ── Phase 5: Prune over-staffing (never below floor role composition) ──
   violationsFixed += pruneOverScheduling(accepted, demand, empById);
+
+  // ── Phase 5b: Trim shift edges to the manager's preference bands ──
+  // Reshapes shifts that straddle a band boundary (e.g. 4 packliners until
+  // 20:00, 2 after) which whole-shift pruning cannot fix. Authoritative:
+  // any hour a manager set is held to that exact count.
+  violationsFixed += trimToPreferenceBands(accepted, demand);
 
   // ── Phase 6: Merge contiguous same-employee/same-role shifts into one ──
   // (e.g. 10:00–17:00 + 17:00–22:00 Packliner → 10:00–22:00). Coverage-neutral.
