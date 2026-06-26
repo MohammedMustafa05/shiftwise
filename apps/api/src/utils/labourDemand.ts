@@ -285,6 +285,13 @@ export type WorkersNeededMaps = {
   hourlyExtraRoleTargets: Map<string, HourlyRoleTargets>;
   hourlyRoleTargets: Map<string, HourlyRoleTargets>;
   scheduleDates: string[];
+  /**
+   * Keys (`${date}|${hour}`) where a manager preference band is authoritative.
+   * For these hours the sales formula is ignored entirely — role targets equal
+   * the manager's exact specified counts (which may be lower than the formula,
+   * or zero for a role), and the operational 1+1+1 floor is NOT enforced.
+   */
+  preferenceControlledHours: Set<string>;
 };
 
 /** All seven dates (Mon–Sun) for a schedule week starting Monday. */
@@ -353,6 +360,7 @@ export function workersNeededMaps(
     hourlyExtraRoleTargets,
     hourlyRoleTargets,
     scheduleDates: [...dateSet].sort(),
+    preferenceControlledHours: new Set<string>(),
   };
 }
 
@@ -367,13 +375,22 @@ export type RoleOverrideFlag = {
 };
 
 /**
- * Merge manager-configured role requirements with sales-driven demand.
- * Strategy: MAX(formula, preferences) per role per hour.
- *   - If sales demand ≥ manager preference → formula wins (already cost-justified)
- *   - If manager preference > sales demand → manager wins (they know their restaurant)
- *     and a flag is emitted so the schedule summary shows the cost impact
+ * Apply manager-configured role requirements as AUTHORITATIVE demand.
  *
- * roleRequirements: { monday: [{ from, to, cooks, cashiers, packliners }], ... }
+ * Semantics: for every hour covered by a manager preference band, the band's
+ * exact role counts REPLACE the sales-driven formula entirely — the sales
+ * formula is ignored for that hour. This is true whether the preference is
+ * higher OR lower than the formula (including zero for a role). Hours not
+ * covered by any band keep their sales-formula targets untouched.
+ *
+ * Covered hours are recorded in demand.preferenceControlledHours so downstream
+ * logic (floor engine, audits, prune) knows to treat the preference as the
+ * complete answer and to skip the operational 1+1+1 floor for those hours.
+ *
+ * A flag is emitted per (hour, role) where the preference differs from the
+ * formula, so the schedule summary can show the cost/coverage impact.
+ *
+ * roleRequirements: { Monday: [{ from, to, cooks, cashiers, packliners }], ... }
  */
 export function applyRoleRequirements(
   demand: WorkersNeededMaps,
@@ -405,7 +422,7 @@ export function applyRoleRequirements(
     for (const band of bands) {
       const fromH = parseInt(band.from?.slice(0, 2) ?? "0", 10);
       const toH = parseInt(band.to?.slice(0, 2) ?? "0", 10) || 24;
-      const mins: Record<StaffingRole, number> = {
+      const wanted: Record<StaffingRole, number> = {
         COOK: band.cooks ?? 0,
         CASHIER: band.cashiers ?? 0,
         PACKLINER: band.packliners ?? 0,
@@ -413,40 +430,34 @@ export function applyRoleRequirements(
 
       for (let hour = fromH; hour < toH; hour++) {
         const key = `${date}|${hour}`;
-        let existing = demand.hourlyRoleTargets.get(key);
-        if (!existing) {
-          existing = combinedRoleTargets(MANDATORY_FLOOR);
-          demand.hourlyRoleTargets.set(key, existing);
-          demand.hourlyCap.set(key, MANDATORY_FLOOR);
-        }
+        const formula = demand.hourlyRoleTargets.get(key) ?? combinedRoleTargets(MANDATORY_FLOOR);
 
-        const updated = { ...existing };
+        // Authoritative override: the manager's counts ARE the targets for this hour.
         for (const role of ["COOK", "CASHIER", "PACKLINER"] as StaffingRole[]) {
-          if (mins[role] > updated[role]) {
+          if (wanted[role] !== formula[role]) {
+            const direction = wanted[role] > formula[role] ? "+" : "";
+            const delta = (wanted[role] - formula[role]) * avgWage;
             flags.push({
               type: "preference_override",
               date,
               hour,
               role,
-              formulaCount: updated[role],
-              managerCount: mins[role],
-              message: `Manager requires ${mins[role]} ${role.toLowerCase()}${mins[role] > 1 ? "s" : ""} at ${hour}:00 (sales formula: ${updated[role]}) — +$${avgWage}/hr`,
+              formulaCount: formula[role],
+              managerCount: wanted[role],
+              message: `Manager set ${wanted[role]} ${role.toLowerCase()}${wanted[role] === 1 ? "" : "s"} at ${hour}:00 (sales formula: ${formula[role]}) — ${direction}$${delta}/hr`,
             });
-            updated[role] = mins[role];
           }
         }
-        demand.hourlyRoleTargets.set(key, updated);
 
-        const total = updated.COOK + updated.CASHIER + updated.PACKLINER;
-        const currentCap = demand.hourlyCap.get(key) ?? MANDATORY_FLOOR;
-        if (total > currentCap) {
-          demand.hourlyCap.set(key, total);
-        }
+        const exact: HourlyRoleTargets = { ...wanted };
+        demand.hourlyRoleTargets.set(key, exact);
+        demand.hourlyCap.set(key, exact.COOK + exact.CASHIER + exact.PACKLINER);
+        demand.preferenceControlledHours.add(key);
       }
     }
   }
 
-  console.log(`[applyRoleRequirements] Generated ${flags.length} override flags`);
+  console.log(`[applyRoleRequirements] Generated ${flags.length} override flags, ${demand.preferenceControlledHours.size} controlled hours`);
   return flags;
 }
 

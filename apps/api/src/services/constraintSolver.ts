@@ -103,8 +103,30 @@ function dowOf(date: string): number {
   return new Date(`${date}T12:00:00Z`).getUTCDay();
 }
 
-function isOperatingHour(date: string, hour: number): boolean {
-  const { open, close } = operatingHoursForDate(date);
+/**
+ * Effective scheduling window for a date. A manager preference band is
+ * authoritative and may extend the window beyond the sales-derived operating
+ * hours (e.g. a "1 cook from 10:00" band on a day that nominally opens at 11:00).
+ */
+function effectiveOperatingHours(
+  date: string,
+  demand?: WorkersNeededMaps
+): { open: number; close: number } {
+  const base = operatingHoursForDate(date);
+  if (!demand) return base;
+  let { open, close } = base;
+  for (const key of demand.preferenceControlledHours) {
+    const sep = key.indexOf("|");
+    if (key.slice(0, sep) !== date) continue;
+    const h = parseInt(key.slice(sep + 1), 10);
+    if (h < open) open = h;
+    if (h + 1 > close) close = h + 1;
+  }
+  return { open, close };
+}
+
+function isOperatingHour(date: string, hour: number, demand?: WorkersNeededMaps): boolean {
+  const { open, close } = effectiveOperatingHours(date, demand);
   return hour >= open && hour < close;
 }
 
@@ -263,12 +285,13 @@ function requiredRoleCountAtHour(
   phase: "floor" | "demand"
 ): number {
   const targets = roleTargetsForHour(demand, date, hour);
-  if (phase === "floor") {
-    // Floor guarantees manager-specified minimums (which are already
-    // merged into targets via applyRoleRequirements). This ensures
-    // "2 cooks at lunch" is treated as mandatory, not optional.
-    return Math.max(CORE_ROLE_MIN, targets[role]);
+  // Preference-controlled hours are authoritative: the manager's exact count
+  // wins, even when it is below the operational 1+1+1 floor (e.g. 0 cashiers
+  // during late-night close). Do NOT apply CORE_ROLE_MIN here.
+  if (demand.preferenceControlledHours.has(`${date}|${hour}`)) {
+    return targets[role];
   }
+  // Non-preference hours: sales formula, but never below the operational floor.
   return Math.max(CORE_ROLE_MIN, targets[role]);
 }
 
@@ -322,8 +345,22 @@ function lateNightHoursOnDate(shifts: ValidatedShift[], date: string): number[] 
   return [...hours].sort((a, b) => a - b);
 }
 
-function hourHasCoreDeficit(shifts: ValidatedShift[], date: string, hour: number): boolean {
+/**
+ * "Floor deficit" at an hour. For ordinary hours this is the operational 1+1+1
+ * minimum. For preference-controlled hours the manager's exact per-role counts
+ * ARE the floor (so a band asking for 0 cashiers is satisfied with 0 cashiers).
+ */
+function hourHasCoreDeficit(
+  shifts: ValidatedShift[],
+  date: string,
+  hour: number,
+  demand?: WorkersNeededMaps
+): boolean {
   const c = concurrentRoleCounts(shifts, date, hour);
+  if (demand?.preferenceControlledHours.has(`${date}|${hour}`)) {
+    const t = roleTargetsForHour(demand, date, hour);
+    return c.COOK < t.COOK || c.CASHIER < t.CASHIER || c.PACKLINER < t.PACKLINER;
+  }
   return (
     c.COOK < CORE_ROLE_MIN || c.CASHIER < CORE_ROLE_MIN || c.PACKLINER < CORE_ROLE_MIN
   );
@@ -333,13 +370,14 @@ function hourHasCoreDeficit(shifts: ValidatedShift[], date: string, hour: number
 function removableWithoutBreakingFloor(
   shifts: ValidatedShift[],
   removeIdx: number,
-  empById: Map<string, SolverEmployee>
+  empById: Map<string, SolverEmployee>,
+  demand?: WorkersNeededMaps
 ): boolean {
   const sh = shifts[removeIdx];
   const trial = shifts.filter((_, i) => i !== removeIdx);
   for (const hour of hoursCoveredByShift(sh.startTime, sh.endTime)) {
-    if (isOperatingHour(sh.shiftDate, hour)) {
-      if (hourHasCoreDeficit(trial, sh.shiftDate, hour)) return false;
+    if (isOperatingHour(sh.shiftDate, hour, demand)) {
+      if (hourHasCoreDeficit(trial, sh.shiftDate, hour, demand)) return false;
     }
     if (hour >= LATE_NIGHT_HOUR_START) {
       const hadCoverage = concurrentWorkersAtHour(shifts, sh.shiftDate, hour).size > 0;
@@ -357,7 +395,7 @@ function exceedsRoleCapAtAnyHour(
   const role = canonicalRole(candidate.role);
   if (!isStaffingRole(role)) return false;
   for (const hour of hoursCoveredByShift(candidate.start_time, candidate.end_time)) {
-    if (!isOperatingHour(candidate.date, hour)) continue;
+    if (!isOperatingHour(candidate.date, hour, demand)) continue;
     const counts = concurrentRoleCounts(shifts, candidate.date, hour);
     const effectiveCap = demand
       ? Math.max(ROLE_CAPS[role], roleTargetsForHour(demand, candidate.date, hour)[role])
@@ -383,7 +421,7 @@ function exceedsRoleTargetAtAnyHour(
   const role = canonicalRole(candidate.role);
   if (!isStaffingRole(role)) return false;
   for (const hour of hoursCoveredByShift(candidate.start_time, candidate.end_time)) {
-    if (!isOperatingHour(candidate.date, hour)) continue;
+    if (!isOperatingHour(candidate.date, hour, demand)) continue;
     const counts = concurrentRoleCounts(shifts, candidate.date, hour);
     const target = requiredRoleCountAtHour(demand, candidate.date, hour, role, "demand");
     if (counts[role] >= target) return true;
@@ -421,7 +459,7 @@ function exceedsLabourCap(
     const onDay = uniqueWorkersOnDay(accepted, candidate.date);
     if (!onDay.has(candidate.employee_id) && onDay.size >= dayCap) {
       const wouldFixCore = coveredHours.some(
-        (hour) => hourHasCoreDeficit(accepted, candidate.date, hour)
+        (hour) => hourHasCoreDeficit(accepted, candidate.date, hour, demand)
       );
       if (!wouldFixCore) return true;
     }
@@ -453,7 +491,7 @@ function exceedsLabourCap(
       role &&
       isStaffingRole(role) &&
       counts[role] < requiredRoleCountAtHour(demand, candidate.date, hour, role, "demand");
-    const coreNeeded = hourHasCoreDeficit(accepted, candidate.date, hour);
+    const coreNeeded = hourHasCoreDeficit(accepted, candidate.date, hour, demand);
 
     if (!working.has(candidate.employee_id) && working.size >= hourCap) {
       if (!(roleNeeded && coreNeeded)) return true;
@@ -478,7 +516,7 @@ function contiguousDemandSpan(
   accepted: ValidatedShift[],
   demand: WorkersNeededMaps
 ): { open: number; close: number } {
-  const { open: opOpen, close: opClose } = operatingHoursForDate(date);
+  const { open: opOpen, close: opClose } = effectiveOperatingHours(date, demand);
 
   // Expand end-hour while role is still under-required at consecutive hours.
   let endHour = startHour + 1;
@@ -501,9 +539,11 @@ function bestOperatingShiftWindow(
   availEnd: string,
   mustIncludeHour?: number,
   date?: string,
-  options?: { floorPhase?: boolean; demandWindow?: { open: number; close: number } }
+  options?: { floorPhase?: boolean; demandWindow?: { open: number; close: number }; demand?: WorkersNeededMaps }
 ): { start: string; end: string } | null {
-  const { open, close } = date ? operatingHoursForDate(date) : { open: OPERATING_HOUR_START, close: OPERATING_HOUR_END };
+  const { open, close } = date
+    ? effectiveOperatingHours(date, options?.demand)
+    : { open: OPERATING_HOUR_START, close: OPERATING_HOUR_END };
   const opStart = open * 60;
   const opEnd = close * 60;
   const isClosingShift = Math.min(effectiveEndMinutes(availEnd, availStart), opEnd) >= opEnd;
@@ -569,7 +609,7 @@ function tryExtendShiftForHour(
     const block = (availByUser.get(sh.employeeId) ?? []).find((b) => b.day_of_week === dow);
     if (!block) continue;
 
-    const { close: opClose } = operatingHoursForDate(date);
+    const { close: opClose } = effectiveOperatingHours(date, demand);
     const availEnd = Math.min(effectiveEndMinutes(block.end_time, block.start_time), opClose * 60);
     if (availEnd <= toMinutes(sh.endTime)) continue;
 
@@ -644,6 +684,7 @@ function tryAssignCoverageShift(
     const win = bestOperatingShiftWindow(block.start_time, block.end_time, hour, date, {
       floorPhase: coreFillOnly,
       demandWindow: coreFillOnly ? undefined : demandWindow,
+      demand,
     });
     if (!win) continue;
     if (!isWithinAvailability(emp.user_id, date, win.start, win.end)) continue;
@@ -738,6 +779,7 @@ function diagnoseCoverageRejections(
     const win = bestOperatingShiftWindow(block.start_time, block.end_time, hour, date, {
       floorPhase: coreFillOnly,
       demandWindow: coreFillOnly ? undefined : demandWindow,
+      demand,
     });
     if (!win) {
       reasons.push(
@@ -807,8 +849,8 @@ function pruneOverScheduling(
       const sh = accepted[i];
       let score = 0;
       for (const hour of hoursCoveredByShift(sh.startTime, sh.endTime)) {
-        if (hour < LATE_NIGHT_HOUR_START && !isOperatingHour(sh.shiftDate, hour)) continue;
-        if (isOperatingHour(sh.shiftDate, hour)) {
+        if (hour < LATE_NIGHT_HOUR_START && !isOperatingHour(sh.shiftDate, hour, demand)) continue;
+        if (isOperatingHour(sh.shiftDate, hour, demand)) {
           const counts = concurrentRoleCounts(accepted, sh.shiftDate, hour);
           const role = canonicalRole(sh.role);
           if (!isStaffingRole(role)) continue;
@@ -822,8 +864,9 @@ function pruneOverScheduling(
           if (!addingRoleIsValid({ ...counts, [role]: counts[role] - 1 }, role)) score += 30;
         }
       }
-      // Only remove if floor 1+1+1 (and H3 where applicable) still holds — never prune on headcount alone.
-      if (score > 0 && removableWithoutBreakingFloor(accepted, i, empById)) {
+      // Only remove if floor (1+1+1, or the manager's exact counts on
+      // preference-controlled hours) and H3 still hold — never prune on headcount alone.
+      if (score > 0 && removableWithoutBreakingFloor(accepted, i, empById, demand)) {
         removalScores.push({
           idx: i,
           score: score + (sh.isEngineSuggested ? 1 : 0) + shiftLengthHours(sh.startTime, sh.endTime) * 0.01,
@@ -882,7 +925,7 @@ function fillRoleGaps(params: {
 
   for (const date of demand.scheduleDates) {
     const dow = dowOf(date);
-    const { open, close } = operatingHoursForDate(date);
+    const { open, close } = effectiveOperatingHours(date, demand);
     for (let hour = open; hour < close; hour++) {
       for (const role of fillOrder) {
         const required = requiredRoleCountAtHour(demand, date, hour, role, phase);
@@ -1040,22 +1083,28 @@ function fillRoleGaps(params: {
 /** Hard flags for unfilled mandatory floor slots (H1) after floor engine passes. */
 export function auditFloorHardFlags(
   shifts: ValidatedShift[],
-  scheduleDates: string[]
+  scheduleDates: string[],
+  demand?: WorkersNeededMaps
 ): SolverHardFlag[] {
   const flags: SolverHardFlag[] = [];
   for (const date of scheduleDates) {
-    const { open, close } = operatingHoursForDate(date);
+    const { open, close } = effectiveOperatingHours(date, demand);
     for (let hour = open; hour < close; hour++) {
       const c = concurrentRoleCounts(shifts, date, hour);
+      // On preference-controlled hours the manager's exact counts define the
+      // floor (which may be 0 for a role); elsewhere the 1+1+1 minimum applies.
+      const isPref = demand?.preferenceControlledHours.has(`${date}|${hour}`) ?? false;
+      const targets = demand ? roleTargetsForHour(demand, date, hour) : null;
       for (const role of ["COOK", "CASHIER", "PACKLINER"] as StaffingRole[]) {
-        if (c[role] < CORE_ROLE_MIN) {
+        const required = isPref && targets ? targets[role] : CORE_ROLE_MIN;
+        if (c[role] < required) {
           flags.push({
             severity: "hard",
             code: "H1_ROLE_COVERAGE_GAP",
             date,
             hour,
             role,
-            detail: `No eligible ${role} available for ${date} ${String(hour).padStart(2, "0")}:00. Cannot meet mandatory floor coverage.`,
+            detail: `Only ${c[role]}/${required} ${role} scheduled for ${date} ${String(hour).padStart(2, "0")}:00. Cannot meet required coverage.`,
           });
         }
       }
@@ -1068,11 +1117,16 @@ export function auditFloorHardFlags(
 export function auditLateNightHardFlags(
   shifts: ValidatedShift[],
   scheduleDates: string[],
-  empById: Map<string, SolverEmployee>
+  empById: Map<string, SolverEmployee>,
+  demand?: WorkersNeededMaps
 ): SolverHardFlag[] {
   const flags: SolverHardFlag[] = [];
   for (const date of scheduleDates) {
     for (const hour of lateNightHoursOnDate(shifts, date)) {
+      // Preference-controlled hours are authoritative — the manager has
+      // explicitly defined the late-night crew (which may intentionally omit
+      // a role), so the H3 safety rule defers to their configuration.
+      if (demand?.preferenceControlledHours.has(`${date}|${hour}`)) continue;
       const { headcount, roles } = rolesUnionAtHour(shifts, empById, date, hour);
       if (headcount === 0) continue;
 
@@ -1105,20 +1159,24 @@ export function auditLateNightHardFlags(
   return flags;
 }
 
-/** Report hours still missing a core role (for metadata warnings). */
+/** Report hours still missing a required role (for metadata warnings). */
 export function auditCoreRoleCoverage(
   shifts: ValidatedShift[],
-  scheduleDates: string[]
+  scheduleDates: string[],
+  demand?: WorkersNeededMaps
 ): string[] {
   const gaps: string[] = [];
   for (const date of scheduleDates) {
-    const { open, close } = operatingHoursForDate(date);
+    const { open, close } = effectiveOperatingHours(date, demand);
     for (let hour = open; hour < close; hour++) {
       const c = concurrentRoleCounts(shifts, date, hour);
+      const isPref = demand?.preferenceControlledHours.has(`${date}|${hour}`) ?? false;
+      const targets = demand ? roleTargetsForHour(demand, date, hour) : null;
+      const req = (role: StaffingRole) => (isPref && targets ? targets[role] : CORE_ROLE_MIN);
       const missing: string[] = [];
-      if (c.COOK < CORE_ROLE_MIN) missing.push("cook");
-      if (c.CASHIER < CORE_ROLE_MIN) missing.push("cashier");
-      if (c.PACKLINER < CORE_ROLE_MIN) missing.push("packliner");
+      if (c.COOK < req("COOK")) missing.push("cook");
+      if (c.CASHIER < req("CASHIER")) missing.push("cashier");
+      if (c.PACKLINER < req("PACKLINER")) missing.push("packliner");
       if (missing.length > 0) {
         gaps.push(`${date} ${String(hour).padStart(2, "0")}:00 missing ${missing.join(", ")}`);
       }
@@ -1247,7 +1305,7 @@ export function runFloorEngineOnly(params: {
     fillRoleGaps({ ...fillCtx, phase: "floor" });
   }
 
-  const gaps = auditFloorHardFlags(accepted, demand.scheduleDates);
+  const gaps = auditFloorHardFlags(accepted, demand.scheduleDates, demand);
   return { shifts: [...accepted], gaps };
 }
 
@@ -1319,7 +1377,7 @@ function fairnessPass(
       let bestDeficit = -Infinity;
       for (const role of fillOrder) {
         if (!roleMatches(emp, role)) continue;
-        const { open, close } = operatingHoursForDate(date);
+        const { open, close } = effectiveOperatingHours(date, demand);
         let deficit = 0;
         for (let h = open; h < close; h++) {
           const target = roleTargetsForHour(demand, date, h)[role];
@@ -1334,12 +1392,13 @@ function fairnessPass(
       if (!bestRole) continue;
 
       // Try to assign via bestOperatingShiftWindow on each availability block
-      const { open, close } = operatingHoursForDate(date);
+      const { open, close } = effectiveOperatingHours(date, demand);
       const midHour = Math.floor((open + close) / 2);
       for (const block of blocks) {
         const win = bestOperatingShiftWindow(block.start_time, block.end_time, midHour, date, {
           floorPhase: false,
           demandWindow: { open, close },
+          demand,
         });
         if (!win) continue;
         if (!isWithinAvailability(emp.user_id, date, win.start, win.end)) continue;
@@ -1514,7 +1573,7 @@ export function validateAndFill(params: {
     const candidateRole = canonicalRole(shift.role);
     if (isStaffingRole(candidateRole)) {
       for (const hour of hoursCoveredByShift(shift.startTime, shift.endTime)) {
-        if (!isOperatingHour(shift.date, hour)) continue;
+        if (!isOperatingHour(shift.date, hour, demand)) continue;
         const counts = concurrentRoleCounts(accepted, shift.date, hour);
         const targets = roleTargetsForHour(demand, shift.date, hour);
         if (counts[candidateRole] >= targets[candidateRole]) {
@@ -1580,7 +1639,7 @@ export function validateAndFill(params: {
   }
 
   // Hard flags for any floor slot still empty after all floor passes
-  hardFlags.push(...auditFloorHardFlags(accepted, demand.scheduleDates));
+  hardFlags.push(...auditFloorHardFlags(accepted, demand.scheduleDates, demand));
 
   // ── Phase 3: LLM suggestions (demand preferences only, after floor) ──
   for (const s of llmSuggestions) {
@@ -1625,10 +1684,10 @@ export function validateAndFill(params: {
   mergeContiguousShifts(accepted);
 
   // Re-audit H1 after prune — prune may have created new gaps
-  hardFlags.push(...auditFloorHardFlags(accepted, demand.scheduleDates));
-  hardFlags.push(...auditLateNightHardFlags(accepted, demand.scheduleDates, empById));
+  hardFlags.push(...auditFloorHardFlags(accepted, demand.scheduleDates, demand));
+  hardFlags.push(...auditLateNightHardFlags(accepted, demand.scheduleDates, empById, demand));
 
-  const roleCoverageGaps = auditCoreRoleCoverage(accepted, demand.scheduleDates);
+  const roleCoverageGaps = auditCoreRoleCoverage(accepted, demand.scheduleDates, demand);
 
   return {
     shifts: accepted,
